@@ -1,0 +1,85 @@
+% Transportation Research Board conference paper template
+% National-Scale EV Charging Scheduling Framework
+\documentclass[numbered]{trbunofficial}
+
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage[ruled,vlined]{algorithm2e}
+\usepackage{pifont}
+\usepackage{array}
+\usepackage{tabularx}
+\usepackage{mathptmx}
+\usepackage{rotating}
+\usepackage{moreverb}
+\usepackage[colorlinks]{hyperref}
+\usepackage{doi}
+\usepackage{url}
+\usepackage{geometry,xcolor,nccmath}
+\usepackage{amsmath,amsthm,amssymb,enumitem}
+\usepackage{booktabs,subcaption,mathtools,multirow}
+\usepackage[nameinlink]{cleveref}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\usetikzlibrary{shapes.geometric,arrows.meta,positioning,fit,calc}
+
+% Calligraphic set macros
+\newcommand{\sV}{\mathcal{V}}
+\newcommand{\sC}{\mathcal{C}}
+\newcommand{\sL}{\mathcal{L}}
+\newcommand{\sO}{\mathcal{O}}
+\newcommand{\sA}{\mathcal{A}}
+\newcommand{\sN}{\mathcal{N}}
+\newcommand{\bigM}{\mathbb{M}}
+
+\hypersetup{colorlinks={true},allcolors={blue}}
+
+\crefname{table}{Table}{Tables}
+\crefname{figure}{Figure}{Figures}
+\crefname{algorithm}{Algorithm}{Algorithms}
+\newcommand{\secref}[1]{\hyperref[#1]{\nameref*{#1}~Section}}
+
+\title{A National-Scale EV Charging Scheduling Framework: Optimal Detour Routing Under Infrastructure Capacity Constraints}
+
+\author{%
+  Taner Cokyasar\textsuperscript{*}\\[4pt]
+  Transportation and Power Systems Division, \\Argonne National Laboratory, 9700 S. Cass Ave, Lemont, IL, 60439, USA\\
+  Department of Engineering Technology and Industrial Distribution, \\Texas A\&M University, Fermier Hall, 106 Ross St., College Station, TX, 77843, USA\\
+  \texttt{tcokyasar@anl.gov}; \texttt{tcokyasar@tamu.edu}
+}
+
+\date{}
+
+\AuthorHeaders{Cokyasar, T.}
+
+\begin{document}
+\maketitle
+
+\section*{Abstract}
+\vspace{10pt}
+\noindent\textbf{Objectives}\\
+As electric vehicle (EV) adoption grows, quantifying the scheduling burden and economic cost of long-distance travel under existing charging infrastructure is crucial. This paper evaluates how well current infrastructure serves long-distance trips and determines the travel cost premium relative to internal combustion engine (ICE) vehicles. It addresses the need to jointly optimize per-vehicle charging schedules across hundreds of thousands of vehicles simultaneously.\\
+
+\noindent\textbf{Methods}\\
+We develop a scalable, optimization-based framework for scheduling EV charging stops along long-distance trajectories across the United States. The methodology uses three phases: infeasibility pruning, per-vehicle optimal charging schedule computation via dynamic programming on a directed acyclic graph, and capacity-aware iterative congestion resolution using a penalty-based heuristic. The framework is applied to approximately 2.7 million origin-destination trajectories from a 1\% sample of national travel demand in POLARIS, covering 14,260 Direct Current Fast Charging (DCFC) stations.\\
+
+\noindent\textbf{Findings}\\
+The framework yields capacity-feasible schedules in under 1.3 hours on a 128-core cluster without commercial solvers. A case study comparing DCFC and Level 2 networks reveals that feasibility depends on network geography, not charger power. Additionally, 350 kW ultra-fast charging achieves total cost of ownership parity with ICE vehicles for 86\% of feasible paths.\\
+
+\noindent\textbf{Novelty}\\
+This study introduces the first national-scale scheduling framework optimizing en-route charging for millions of vehicles simultaneously, resolving capacity conflicts without commercial solvers.\\
+
+\noindent\textbf{Practical Applications}\\
+Results show charger power upgrades should target high-utilization stations to resolve congestion rather than uniform deployment. This framework provides policymakers a diagnostic tool to assess how EV range, adoption rates, and energy prices impact long-distance EV travel viability.
+
+\newpage
+
+\input{trb_content}
+
+\bibliographystyle{trb}
+\bibliography{national_ev_charging}
+
+\vfill
+\framebox{\parbox{.90\linewidth}{\scriptsize The submitted manuscript has been created by UChicago Argonne, LLC, Operator of Argonne National Laboratory (``Argonne''). Argonne, a U.S.\ Department of Energy Office of Science laboratory, is operated under Contract No.\ DE-AC02-06CH11357.  The U.S.\ Government retains for itself, and others acting on its behalf, a paid-up nonexclusive, irrevocable worldwide license in said article to reproduce, prepare derivative works, distribute copies to the public, and perform publicly and display publicly, by or on behalf of the Government.  The Department of Energy will provide public access to these results of federally sponsored research in accordance with the DOE Public Access Plan \url{http://energy.gov/downloads/doe-public-access-plan}.}}
+
+\end{document}

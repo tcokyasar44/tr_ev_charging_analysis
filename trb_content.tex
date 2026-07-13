@@ -1,0 +1,757 @@
+% =============================================================================
+\section{Introduction}\label{sec:intro}
+% =============================================================================
+
+The growing adoption of battery electric vehicles (EVs) as an alternative powertrain raises a fundamental economic question for consumers and policymakers alike: does long-distance travel by EV cost less than travel by a conventional internal combustion engine (ICE) vehicle, once the full burden of detour time, charging delays, vehicle ownership, and infrastructure investment is accounted for? Falling battery costs, expanding model availability, and a maturing charging network~\cite{iea_2024} have made EVs increasingly competitive for daily commuting, but the economics of long-distance intercity travel remain far less clear. Whereas gasoline stations are ubiquitous and refueling takes minutes, Direct Current Fast Charging (DCFC) is geographically sparser and charging sessions last on the order of 20--60 minutes. For long-distance trips, this means drivers must plan detours to charging stations, potentially wait for a plug to become available, and accept a meaningful time overhead relative to a comparable gasoline-powered trip.
+
+A natural question that follows is: for a given EV adoption rate, how well does the existing charging infrastructure serve long-distance trips, and what is the total travel cost premium, if any, relative to ICE vehicles? This is a \textit{scheduling and economic assessment} problem, distinct from the \textit{siting} problem (where to place new stations) or the \textit{sizing} problem (how many plugs each station should have), both of which have received extensive attention in the literature. Answering the scheduling and assessment question requires three integrated capabilities: (i) routing individual vehicles optimally through the existing charging network along their prescribed travel paths, (ii) resolving conflicts when multiple vehicles converge on the same charger at the same time, and (iii) aggregating per-vehicle outcomes into system-level economic comparisons across adoption scenarios.
+
+Existing work on EV charging optimization has largely focused on individual-vehicle route planning~\cite{bagheri_2020,he_2018}, station siting under flow-based demand models~\cite{kuby_2005,li_2016}, or simulation of aggregate queuing behavior~\cite{bae_2015}. What is missing is a framework that jointly optimizes per-vehicle charging schedules across hundreds of thousands of vehicles simultaneously, resolves the resulting capacity conflicts at the station level, and evaluates outcomes through a rigorous multi-tier economic lens across a range of adoption scenarios and at national geographic scale.
+
+This study addresses that gap by developing and applying such a framework. The transportation network and demand are drawn from the POLARIS agent-based simulation model~\cite{auld_2016}, which provides link-level vehicle trajectories derived from a 1\% sample of national monthly personal travel demand. The charging infrastructure is sourced from the Alternative Fuels Station Locator (AFDC)~\cite{afdc_2026}. The core scheduling methodology centers on a directed acyclic graph (DAG) formulation in which the optimal sequence of charging stops for a single vehicle, minimizing total detour time cost, is found via dynamic programming (DP). Inter-vehicle coupling through charger capacity is addressed through an iterative congestion penalty heuristic that augments detour costs at overloaded stations and re-solves the DAG for affected vehicles, with a First-In, First-Out (FIFO) fallback that guarantees a feasible outcome for every schedulable vehicle.
+
+The specific contributions of this paper are:
+
+\begin{enumerate}
+    \item A DAG-based DP formulation that yields optimal per-vehicle charging schedules under state-of-charge (SoC) feasibility constraints, without reliance on any commercial solver, and that scales to national-level inputs.
+
+    \item A capacity-aware iterative penalty heuristic that augments DAG detour costs at congested stations proportionally to their peak overflow, re-routes affected vehicles, and applies a FIFO queue fallback to guarantee feasibility.
+
+    \item A three-tier economic analysis framework that compares EVs to ICE vehicles at the per-path level across operational costs, total cost of ownership (TCO), and amortized charging infrastructure investment.
+
+    \item A national-scale application covering approximately 2.7M origin-destination (O-D) trajectories, 14,260 DCFC stations, and a full computational performance characterization on 128-core High Performance Computing (HPC) clusters.
+\end{enumerate}
+
+The framework is intentionally modular and parametric. While this paper reports a baseline scenario with current infrastructure and a representative EV specification distribution, the system is designed to support systematic scenario sweeps over adoption rates, EV range, charger power levels, and energy prices, providing a diagnostic tool for understanding the economic value of alternative powertrains for long-distance travel and for informing infrastructure planning decisions.
+
+% =============================================================================
+\section{Literature Review}\label{sec:lit}
+% =============================================================================
+
+Research on EV charging optimization spans four streams relevant to this work: (i) charging infrastructure siting and sizing, (ii) en-route charging optimization for individual vehicles, (iii) multi-vehicle scheduling and charger capacity management, and (iv) economic evaluation of EV travel costs. \cref{tab:litreview} summarizes key studies along five dimensions: problem type, infrastructure assumption, solution method, capacity handling, and experimental scale. To the best of our knowledge, this is the first study to optimize en-route charging schedules for hundreds of thousands of long-distance passenger EVs simultaneously over a national road network, resolving charger capacity conflicts through an iterative congestion penalty heuristic and evaluating outcomes through a three-tier economic analysis, all without relying on a commercial solver.
+
+\subsection{Charging Infrastructure Siting and Sizing}
+
+A substantial body of work treats infrastructure placement as the primary decision~\cite{BAZARNOVI2025,BAZARNOVI2025583,DAVATGARI2024953,KALEEM2026103403, DAVATGARI2024361}. The flow-refueling location model developed by \citet{kuby_2005} sites stations on highway networks to intercept maximum traffic flow, with station locations as binary decisions and vehicle flows as given inputs. \citet{upchurch_2009} extended this model to capacitated stations where plug counts are also decided. \citet{frade_2011} formulated a maximum-coverage mixed-integer program (MIP) subject to a budget constraint on the number of stations for a Portuguese urban network with fewer than 100 candidate sites. \citet{li_2016} incorporated range anxiety by penalizing charging plans that bring SoC below a safety threshold, solving a multi-period MIP for a state-level highway network. More recently, \citet{xiong_2024} proposed a multi-period stochastic MIP that co-optimizes station locations and charger counts under demand uncertainty.
+
+All of these studies treat infrastructure as a decision variable and optimize supply to meet a given demand. This paper takes the opposite stance: infrastructure is fixed and given (sourced from the AFDC), and the problem is to optimally schedule vehicle charging within that network. This distinction is what enables the framework to serve as a diagnostic tool for assessing whether the current network can support cost-competitive long-distance EV travel across adoption scenarios.
+
+\subsection{En-Route Charging Optimization for Individual Vehicles}
+
+For a single vehicle on a known route, selecting when and where to stop for charging is a shortest-path or DP problem with SoC as a resource. \citet{bagheri_2020} modeled this problem as a shortest-path problem on a graph whose nodes are candidate charging stations, solving individual-trip instances in seconds; however, the model is limited to a single vehicle and does not consider charger capacity. \citet{zhang_2018} formulated en-route charging with time-varying electricity prices as a DP problem for individual vehicles. \citet{he_2018} proposed and tested a robust optimization model for single-vehicle en-route charging under uncertain travel times on a small corridor. Additionally, \citet{chen_2020} developed a model predictive control (MPC) policy for en-route energy management on a fixed corridor.
+
+Our DAG formulation shares the core insight of these works that is single-vehicle en-route charging is a DP problem on a state space of (position, SoC), but extends it in three key directions. First, we define the state space over link indices and discretized SoC buckets rather than charging station nodes, which directly accommodates link-by-link trajectories from a traffic simulation without requiring a station-to-station graph. Second, the solver is designed for batch parallel execution across hundreds of thousands of vehicles, not individual trip optimization. Third, the per-vehicle solver is a component of a capacity-resolution outer loop, coupling individual optimality with system-wide feasibility, a feature absent from all single-vehicle studies.
+
+\subsection{Multi-Vehicle Charging Scheduling and Capacity Management}
+
+When many EVs share a finite plug supply, individually optimal schedules can collectively violate capacity. \citet{bae_2015} modeled charging stations as \textit{M}/\textit{M}/\textit{c} queues to yield steady-state wait-time distributions as a function of arrival rate and plug count; while analytically tractable, this approach produces aggregate statistics rather than individual vehicle schedules and does not optimize routing decisions. \citet{zhang_2019} used discrete-event simulation to determine the required number of charging stations on a motorway corridor based on real traffic data, quantifying queue lengths under varying demand; however, the approach is corridor-level and does not optimize per-vehicle stop decisions. \citet{lee_2020} formulated a MIP for jointly scheduling charging sessions at a parking facility with explicit plug capacity enforcement, but the model is limited to tens of vehicles at a single facility. \citet{tang_2016} proposed a dual decomposition algorithm for coordinating charging rates at a workplace facility, iteratively updating rates to respect a transformer capacity constraint. While both of these approaches iterate to resolve capacity conflicts, that work adjusts continuous charging rates at a single facility for on the order of 100 vehicles using dual prices, whereas our method applies heuristic overflow penalties to DAG edge costs and re-solves full per-vehicle shortest-path problems.
+
+Our congestion penalty heuristic re-solves the DAG shortest-path for affected vehicles across 14,260 stations, augmenting detour edge costs by a penalty proportional to each station's peak plug overflow and doubling the penalty multiplier when improvement stalls. A FIFO fallback guarantees every schedulable vehicle receives a capacity-feasible outcome regardless of whether the penalty iterations fully clear congestion.
+
+\subsection{Economic Evaluation of EV Travel Costs}
+
+\citet{hagman_2016} conducted a TCO analysis for passenger EVs in Norway that decomposes costs into purchase price, fuel, maintenance, and taxes at the fleet level. A levelized cost analysis of EV charging in the United States by \citet{ledna_2022} found that cost competitiveness depends strongly on charger utilization, electricity rates, and charging level. \citet{needell_2016} used national travel survey data to estimate the share of U.S. vehicle-miles serviceable by battery-electric powertrains given current ranges, characterizing feasibility statistically but not optimizing individual schedules. Furthermore, \citet{chakraborty_2019} used charging behavior data from plug-in EV commuters to characterize demand drivers for public charging infrastructure beyond the home, again without vehicle-level scheduling.
+
+Our economic analysis differs from these in three respects. First, it operates at the individual path level, enabling disaggregation of EV cost competitiveness by trip length, geography, and vehicle specifications. Second, it decomposes the cost differential explicitly into energy cost, detour time, wait time, vehicle TCO, and amortized infrastructure investment, isolating each driver of the EV-vs-ICE cost gap. Third, detour and wait costs are not assumed parameters but outputs of the scheduling optimization, ensuring internal consistency between the operational model and the economic evaluation.
+
+\begin{table*}[!htb]
+\centering
+\caption{Summary of related studies.}\label{tab:litreview}
+\scriptsize
+\begin{tabularx}{\textwidth}{>{\raggedright\arraybackslash}X ccc >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X}
+\toprule
+& \multicolumn{3}{c}{\textbf{Problem}} & \multicolumn{2}{c}{\textbf{Modeling}} & \multicolumn{1}{c}{\textbf{Approach}} \\
+\cmidrule(lr){2-4} \cmidrule(lr){5-6} \cmidrule(lr){7-7}
+\textbf{Study} & \textbf{SI} & \textbf{ES} & \textbf{MC} & \textbf{Infrastructure} & \textbf{Capacity Handling} & \textbf{Method / Scale} \\
+\midrule
+\cite{kuby_2005}         & \checkmark & & & Decision variable & None & Flow-refueling LP / Regional \\
+\cite{upchurch_2009}     & \checkmark & & & Decision variable & Aggregate & Capacitated LP / Regional \\
+\cite{frade_2011}        & \checkmark & & & Decision variable & None & MIP / $<$100 sites \\
+\cite{li_2016}           & \checkmark & & & Decision variable & None & Multi-period MIP / State network \\
+\cite{xiong_2024}        & \checkmark & & & Decision variable & Aggregate demand & Stochastic MIP / Regional \\
+\cite{bagheri_2020}      & & \checkmark & & Fixed (given) & None & Shortest path / Individual trip \\
+\cite{zhang_2018}        & & \checkmark & & Fixed (given) & None & DP / Individual trip \\
+\cite{he_2018}           & & \checkmark & & Fixed (given) & None & Robust opt. / Individual trip \\
+\cite{chen_2020}         & & \checkmark & & Fixed (given) & None & MPC / Single corridor \\
+\cite{bae_2015}          & & & \checkmark & Fixed (given) & Analytical (aggregate) & \textit{M}/\textit{M}/\textit{c} queuing / Single station \\
+\cite{zhang_2019}        & & & \checkmark & Fixed (given) & Simulation (aggregate) & Discrete-event sim. / Corridor \\
+\cite{lee_2020}          & & \checkmark & \checkmark & Fixed (given) & Explicit (facility) & MIP / $\sim$10s vehicles \\
+\cite{tang_2016}         & & & \checkmark & Fixed (given) & Iterative (facility) & Dual decomp. / $\sim$100s vehicles \\
+\cite{hagman_2016}       & & & & Assumed & None & TCO accounting / Fleet-level \\
+\cite{needell_2016}      & & & & Assumed & None & Statistical / National (survey) \\
+\cite{chakraborty_2019}  & & & & Assumed & None & Statistical / National (survey) \\
+\midrule
+\textbf{This paper} & & \checkmark & \checkmark & \textbf{Fixed (AFDC)} & \textbf{Iterative penalty heuristic + FIFO} & \textbf{DAG DP + penalty heuristic / $\sim$2.7M vehicles, national} \\
+\bottomrule
+\multicolumn{7}{p{0.98\textwidth}}{\emph{SI: Siting/sizing, ES: En-route scheduling, MC: Multi-vehicle / capacity management, DP: Dynamic programming, MPC: Model predictive control, MIP: Mixed-integer programming, LP: Linear programming.}}\\
+\end{tabularx}
+\end{table*}
+
+% =============================================================================
+\section{Methodology}\label{sec:method}
+% =============================================================================
+
+To ensure clarity and consistency, we use specific notation throughout the formulation. Calligraphic letters, such as $\mathcal{V}$, represent sets. Lowercase Roman letters, like $x_{vi}$, are used for decision variables and indices, while Greek letters appear either as standalone parameters (e.g., $\delta$) or as superscripts when used as modifiers (e.g., $C^\tau$, $C^\omega$). Uppercase Roman letters, including $E_{vi}^{\tau}$, denote parameters. Blackboard bold letters, such as $\mathbb{R}$, are reserved for domains. \Cref{tab:sets_params} and~\Cref{tab:vars} list all sets, parameters, and variables alphabetically; \Cref{tab:sets_params} covers sets and parameters, and \Cref{tab:vars} lists the decision variables with their domains.
+
+\subsection{Problem Definition}
+
+Consider a set of EVs $\mathcal{V}$, each assigned a fixed long-distance route through a road network. The route of vehicle $v \in \mathcal{V}$ is a sequence of $N_v$ directed links $\mathcal{L}_v = (\ell_{v,1}, \ell_{v,2}, \ldots, \ell_{v,N_v})$, derived from static traffic assignment. A set of charging stations $\mathcal{C}$ is given with fixed locations and plug capacities; no station siting or sizing decisions are made. The core operational decision is: \textit{after the traversal of which links should vehicle $v$ detour to a charging station?} \Cref{fig:problem} depicts this decision for a seven-link route: the road is a continuous band of segments with $b_{vi}$ marking the SoC at the \emph{left boundary} (start) of each link $\ell_i$; when $x_{vi}=1$ the vehicle detours from the \emph{right boundary} (endpoint) of $\ell_i$ to the nearest station, recharges, and returns before continuing on $\ell_{i+1}$. The objective is to jointly determine these decisions for all vehicles so as to minimize total detour and queuing costs while satisfying SoC bounds and station capacity constraints.
+
+The framework rests on the following assumptions, which bound its scope:
+
+\begin{itemize}[leftmargin=*, noitemsep, topsep=2pt]
+    \item Station locations and plug counts are given inputs; the problem is scheduling, not siting or sizing.
+    \item Stations house a single type of charger, e.g., Level 2 (L2) and DCFC, across all locations.
+    \item At the endpoint of each link, a vehicle may detour only to its geographically nearest station. No choice among multiple nearby stations is made.
+    \item At each stop, the vehicle charges to the operational maximum SoC, denoted by $\overline{S}$. No partial charging is modeled.
+    \item Energy consumption is proportional to distance. Speed and terrain effects are not modeled.
+    \item The charging rate is constant at $\phi_v = W_c / Q_v$ (\%/sec), where $W_c$ is charger power and $Q_v$ is battery capacity. No taper curve is modeled; $\overline{S} = 80\%$ partially mitigates this.
+    \item The detour distance from a link endpoint to its nearest station is the $L_1$ distance in projected coordinates, traversed at a constant speed $\bar{v}$.
+    \item Vehicles return to the same link endpoint after charging. Rerouting is not modeled since constructing shortest-paths for detours is computational challenging at national scale.
+\end{itemize}
+
+\begin{figure}[!ht]
+\centering
+\begin{tikzpicture}[
+    det/.style={->, >=stealth, dashed, thick, black},
+    sl/.style={font=\footnotesize, text=black},
+    charger/.style={draw, circle, minimum size=0.85cm, fill=black!8,
+                    font=\footnotesize, text centered, thick, text=black}
+]
+
+
+% Layout constants
+%   \lw  = width of each link segment (cm)
+%   \rt  = road band top y;  \rb = road band bottom y
+%   7 links => road spans x = 0 to 7*\lw
+\def\lw{1.55}
+\def\rt{0.5}
+\def\rb{0.0}
+
+% Road band: one filled rectangle, internal dividers, no outer arrows
+\fill[black!7] (0,\rb) rectangle (7*\lw,\rt);
+\draw[black,thick] (0,\rb) rectangle (7*\lw,\rt);
+\foreach \k in {1,2,3,4,5,6}{
+    \draw[black!35,thin] (\k*\lw,\rb) -- (\k*\lw,\rt);
+}
+
+% Link labels centred in each segment
+\foreach \i in {1,...,7}{
+    \pgfmathsetmacro{\cx}{(\i-0.5)*\lw}
+    \node[font=\small,text=black] at (\cx,0.25) {$\ell_{\i}$};
+}
+
+% Travel-direction arrow above road
+\draw[->,>=stealth,thick,black]
+    (0.2,\rt+0.22) -- (7*\lw-0.2,\rt+0.22)
+    node[midway,above,font=\footnotesize]{travel direction};
+
+% Detour / return arrows from the ENDPOINT (right boundary) of
+% link \ell_2  (x = 2*\lw) and \ell_5 (x = 5*\lw)
+\coordinate (ep2) at (2*\lw, \rt);   % top of divider after ell_2
+\coordinate (ep5) at (5*\lw, \rt);   % top of divider after ell_5
+
+\fill[black] (ep2) circle (2pt);
+\fill[black] (ep5) circle (2pt);
+
+% Charger nodes (offset slightly right so arrows don't overlap)
+\node[charger] (cA) at (2*\lw+0.6, \rt+2.1) {$c_A$};
+\node[charger] (cB) at (5*\lw+0.6, \rt+2.1) {$c_B$};
+
+% Detour: endpoint -> charger -> endpoint
+\draw[det] (ep2) to[out=95,in=250]
+    node[midway,left,font=\footnotesize]{detour} (cA.south);
+\draw[det] (cA.south) to[out=290,in=75]
+    node[midway,right,font=\footnotesize]{return} (ep2);
+
+\draw[det] (ep5) to[out=95,in=250]
+    node[midway,left,font=\footnotesize]{detour} (cB.south);
+\draw[det] (cB.south) to[out=290,in=75]
+    node[midway,right,font=\footnotesize]{return} (ep5);
+
+% SoC labels near the bottom end of each vertical divider line.
+% Each divider is at x = k*\lw, running from \rb to \rt.
+% Labels are placed just below \rb, anchored north, so they sit
+% immediately beneath the road band touching the divider foot.
+
+\node[sl,anchor=north] at (0*\lw,\rb-0.08) {$b_{v1}$};
+\node[sl,anchor=north] at (1*\lw,\rb-0.08) {$b_{v2}$};
+\node[sl,anchor=north] at (2*\lw,\rb-0.08) {$b_{v3}$};
+\node[sl,anchor=north] at (3*\lw,\rb-0.08) {$b_{v4}$};
+\node[sl,anchor=north] at (4*\lw,\rb-0.08) {$b_{v5}$};
+\node[sl,anchor=north] at (5*\lw,\rb-0.08) {$b_{v6}$};
+\node[sl,anchor=north] at (6*\lw,\rb-0.08) {$b_{v7}$};
+\node[sl,anchor=north] at (7*\lw,\rb-0.08) {$b_{v8}$};
+
+\end{tikzpicture}
+\caption{En-route charging decision for vehicle $v$ on a seven-link route. The road is a continuous sequence of links $\ell_1,\ldots,\ell_7$; links are contiguous road segments with no transitions between them. The SoC $b_{vi}$ at the \emph{start} of each link $\ell_i$ is labeled at the corresponding link boundary. At the endpoint of $\ell_2$ the vehicle detours to the nearest charging station $c_A$, recharges to $\overline{S}$, and returns to the same endpoint before continuing on $\ell_3$; the same occurs at the endpoint of $\ell_5$ with station $c_B$.}
+\label{fig:problem}
+\end{figure}
+
+\begin{table}[!htb]
+\footnotesize
+\caption{Sets and parameters used in the formulation.}\label{tab:sets_params}
+\begin{tabularx}{\linewidth}{lX}
+\toprule
+\textbf{Symbol} & \textbf{Definition} \\
+\midrule
+\multicolumn{2}{l}{\textit{Sets}} \\
+$\mathcal{C}$ & Set of charging stations \\
+$\mathcal{C}_{vi}$ & Nearest charging station accessible from the endpoint of link $\ell_{v,i}$; $|\mathcal{C}_{vi}| \leq 1$ \\
+$\mathcal{L}_v$ & Ordered sequence of links comprising the route of vehicle $v \in \mathcal{V}$; $|\mathcal{L}_v| = N_v$ \\
+$\mathcal{T}$ & Set of time steps to track charging \\
+$\mathcal{V}$ & Set of EVs (trajectories) \\
+\midrule
+\multicolumn{2}{l}{\textit{Parameters}} \\
+$B_{v}$ & Starting SoC (\%) of vehicle $v$ \\
+$C^\omega$ & Waiting cost rate (\$/sec); value of time spent waiting for a plug \\
+$C^\tau$ & Detour cost rate (\$/sec); value of detour travel time \\
+$D_{vi}$ & Distance (m) of link $\ell_{v,i}$ for vehicle $v$ \\
+$E_{vi}^{\tau}$ & SoC consumed (\%) by vehicle $v$ traversing link $\ell_{v,i}$ \\
+$E_{vi}^{\delta}$ & SoC consumed (\%) by the one-way detour from endpoint of $\ell_{v,i}$ to station $c \in \mathcal{C}_{vi}$ \\
+$N_v$ & Number of links in vehicle $v$'s route \\
+$Q_v$ & Battery capacity (Wh) of vehicle $v$ \\
+$\overline{S}$ & Maximum operational SoC (\%); target SoC at each charging stop \\
+$\underline{S}$ & Minimum operational SoC (\%); lower bound enforced throughout journey \\
+$T_v^0$ & Journey start time (sec) of vehicle $v$ \\
+$T_{vi}^{\delta}$ & One-way detour time (sec) from endpoint of $\ell_{v,i}$ to nearest station $c \in \mathcal{C}_{vi}$ \\
+$T_{vi}^{\tau}$ & Travel time (sec) of vehicle $v$ on link $\ell_{v,i}$ \\
+$W_c$ & Power output (W) of charger type at station $c$ \\
+$Z_c$ & Number of plugs at station $c \in \mathcal{C}$ \\
+$\Delta$ & Time bin width (sec) for occupancy tracking \\
+$\lambda$ & Initial penalty multiplier for congested stations in the congestion penalty heuristic \\
+$\phi_v$ & Charging rate (\%/sec) of vehicle $v$: $\phi_v = W_c / Q_v \times 100 / 3600$ \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[!htb]
+\footnotesize
+\caption{Decision variables used in the formulation.}\label{tab:vars}
+\begin{tabularx}{\linewidth}{lX}
+\toprule
+\textbf{Symbol} & \textbf{Definition} \\
+\midrule
+$b_{vi}$ & SoC (\%) of vehicle $v \in \mathcal{V}$ at the \emph{start} of link $\ell_{v,i}$, $i \in \mathcal{L}_v$; $B_v$ is the given initial SoC \\[4pt]
+$p_{vit}$ & $\begin{cases} 1 & \text{if charging start time } s_{vi} \leq t\Delta,\ \forall v \in \mathcal{V},\, i \in \mathcal{L}_v,\, t \in \mathcal{T} \\ 0 & \text{otherwise} \end{cases}$ \\[6pt]
+$q_{vit}$ & $\begin{cases} 1 & \text{if charging end time } s_{vi}+u_{vi} > t\Delta,\ \forall v \in \mathcal{V},\, i \in \mathcal{L}_v,\, t \in \mathcal{T} \\ 0 & \text{otherwise} \end{cases}$ \\[6pt]
+$s_{vi}$ & Charging start time (sec) of vehicle $v \in \mathcal{V}$ at its stop after link $i \in \mathcal{L}_v$; defined when $x_{vi}=1$ \\[4pt]
+$u_{vi}$ & Charging duration (sec) of vehicle $v \in \mathcal{V}$ at its stop after link $i \in \mathcal{L}_v$; defined when $x_{vi}=1$ \\[4pt]
+$w_{vct}$ & $\begin{cases} 1 & \text{if vehicle } v \in \mathcal{V} \text{ occupies a plug at station } c \in \mathcal{C} \text{ during time bin } t\in\mathcal{T} \\ 0 & \text{otherwise} \end{cases}$ \\[6pt]
+$x_{vi}$ & $\begin{cases} 1 & \text{if vehicle } v \in \mathcal{V} \text{ detours to charge after traversing link } \ell_{v,i},\ i \in \mathcal{L}_v \\ 0 & \text{otherwise} \end{cases}$ \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The joint scheduling problem across all vehicles can be stated as the following MIP. Let $T_v^0$ denote the journey start time of vehicle $v$ (given). The charging start time at stop $i$ is $s_{vi}$ and the charging duration is $u_{vi}$; both are continuous variables defined only when $x_{vi} = 1$, where $x_{vi}\in\{0,1\}$ indicates whether vehicle $v\in\mathcal{V}$ detours to charge after link $\ell_{v,i}$.
+
+\begin{align}
+    \min \quad & \sum_{v \in \mathcal{V}} \sum_{i \in \mathcal{L}_v} 2\,T_{vi}^{\delta}\, C^\tau\, x_{vi}
+    \;+\; \sum_{v \in \mathcal{V}} \sum_{c \in \mathcal{C}} \sum_{t \in \mathcal{T}} \Delta\, C^\omega\, w_{vct}
+    \label{eq:obj}
+\end{align}
+\begin{align}
+    \text{s.t.} \quad & b_{v,i+1} = b_{vi} - E_{vi}^{\tau} + x_{vi}\bigl(\overline{S} - b_{vi} + E_{vi}^{\tau} - E_{vi}^{\delta}\bigr) \qquad \forall v \in \mathcal{V},\; i \in \mathcal{L}_v \setminus \{\ell_{v,N_v}\}
+    \label{eq:soc_update}
+\end{align}
+\begin{align}
+    & \underline{S} \;\leq\; b_{vi} \;\leq\; \overline{S}
+    \qquad \forall v \in \mathcal{V},\; i \in \mathcal{L}_v
+    \label{eq:soc_bounds}
+\end{align}
+\begin{align}
+    & b_{vi} - E_{vi}^{\tau} - E_{vi}^{\delta} \;\geq\; \underline{S} - \bigM(1 - x_{vi})
+    \qquad \forall v \in \mathcal{V},\; i \in \mathcal{L}_v
+    \label{eq:reach}
+\end{align}
+\begin{align}
+    & s_{vi} \;\geq\; \Bigl(T_v^0 + \textstyle\sum_{j \in \mathcal{L}_v,\, j \leq i} T_{vj}^{\tau} + T_{vi}^{\delta}\Bigr)\, x_{vi}
+    \qquad \forall v \in \mathcal{V},\; i \in \mathcal{L}_v
+    \label{eq:charge_start}
+\end{align}
+\begin{align}
+    & u_{vi} = \frac{\overline{S} - (b_{vi} - E_{vi}^{\tau} - E_{vi}^{\delta})}{\phi_v}\, x_{vi}
+    \qquad \forall v \in \mathcal{V},\; i \in \mathcal{L}_v
+    \label{eq:charge_dur}
+\end{align}
+\begin{align}
+    & \sum_{v \in \mathcal{V}} w_{vct} \;\leq\; Z_c
+    \qquad \forall c \in \mathcal{C},\; \forall t \in \mathcal{T}
+    \label{eq:capacity}
+\end{align}
+\begin{align}
+    & s_{vi} \;\leq\; t\Delta + \bigM(1 - p_{vit})
+    \qquad \forall v \in \mathcal{V},\; i \in \mathcal{L}_v,\; t \in \mathcal{T}
+    \label{eq:p_upper} \\
+    & s_{vi} \;\geq\; t\Delta - \bigM\, p_{vit}
+    \qquad \forall v \in \mathcal{V},\; i \in \mathcal{L}_v,\; t \in \mathcal{T}
+    \label{eq:p_lower}
+\end{align}
+\begin{align}
+    & s_{vi} + u_{vi} \;\geq\; t\Delta - \bigM(1 - q_{vit})
+    \qquad \forall v \in \mathcal{V},\; i \in \mathcal{L}_v,\; t \in \mathcal{T}
+    \label{eq:q_lower} \\
+    & s_{vi} + u_{vi} \;\leq\; t\Delta + \bigM\, q_{vit}
+    \qquad \forall v \in \mathcal{V},\; i \in \mathcal{L}_v,\; t \in \mathcal{T}
+    \label{eq:q_upper}
+\end{align}
+\begin{align}
+    & w_{vc(i)t} \;\leq\; p_{vit}, \quad
+      w_{vc(i)t} \;\leq\; q_{vit}, \quad
+      w_{vc(i)t} \;\geq\; p_{vit} + q_{vit} - 1
+    \nonumber \\
+    & w_{vc(i)t} \;\leq\; x_{vi}, \quad
+      p_{vit} \;\leq\; x_{vi}, \quad
+      q_{vit} \;\leq\; x_{vi}
+    \quad \forall v \in \mathcal{V},\; i \in \mathcal{L}_v \text{ s.t. } \mathcal{C}_{vi} \neq \emptyset,\; t \in \mathcal{T}
+    \label{eq:linking}
+\end{align}
+\begin{align}
+    & x_{vi},\, p_{vit},\, q_{vit},\, w_{vct} \in \{0,1\},\quad b_{vi},\, s_{vi},\, u_{vi} \in \mathbb{R}_{\geq 0}
+    \qquad \forall v \in \mathcal{V},\; i \in \mathcal{L}_v,\; t \in \mathcal{T}
+    \label{eq:domains}
+\end{align}
+
+The objective~\eqref{eq:obj} minimizes the sum of round-trip detour costs (at rate $C^\tau$ per second, doubled for the return leg) and waiting costs ($C^\omega$ per second times the duration in each bin $t$ that vehicle $v$ waits at station $c$). Constraint~\eqref{eq:soc_update} propagates the SoC along the route: if $x_{vi}=0$ the vehicle starts link $i+1$ with $b_{vi} - E_{vi}^{\tau}$; if $x_{vi}=1$ it traverses link $i$ (spending $E_{vi}^{\tau}$), detours to the charger (spending $E_{vi}^{\delta}$), recharges to $\overline{S}$, and returns (spending $E_{vi}^{\delta}$ again), so the SoC at the start of link $i+1$ is $\overline{S} - E_{vi}^{\delta}$ (the product $x_{vi} b_{vi}$ is linearized via the big-$\mathbb{M}$ technique in practice). Constraint~\eqref{eq:soc_bounds} enforces the minimum and maximum operational SoC at every link. Constraint~\eqref{eq:reach} ensures a vehicle has sufficient SoC to reach the charger before deciding to detour. Constraints~\eqref{eq:charge_start}--\eqref{eq:charge_dur} pin the charging start time and duration to the vehicle's timeline when a detour occurs. Constraint~\eqref{eq:capacity} limits simultaneous plug occupancy at each station $c$ to $Z_c$ across all time bins. The link between the continuous charging schedule $(s_{vi}, u_{vi})$ and the binary occupancy $w_{vct}$ is established by constraints~\eqref{eq:p_upper}--\eqref{eq:linking}. Specifically, $p_{vit}=1$ if the charging session starts at or before the beginning of bin $t$ (i.e., $s_{vi} \leq t\Delta$), encoded by \eqref{eq:p_upper}--\eqref{eq:p_lower}; $q_{vit}=1$ if the session has not ended by the start of bin $t$ (i.e., $s_{vi}+u_{vi} \geq t\Delta$), encoded by \eqref{eq:q_lower}--\eqref{eq:q_upper}. Constraints~\eqref{eq:linking} then set $w_{vc(i)t} = p_{vit} q_{vit} x_{vi}$ via standard linearization: $w_{vc(i)t}$ equals one if and only if all three are one, and is forced to zero whenever $x_{vi}=0$.
+
+\subsection{Directed Acyclic Graph with Iterative Penalty Heuristic}
+
+The MIP in \eqref{eq:obj}--\eqref{eq:domains} is computationally intractable at the scale targeted in this paper. The charging decision variables $x_{vi}$ alone number $\sum_{v \in \mathcal{V}} |\mathcal{L}_v|$; with $|\mathcal{V}| \approx 500{,}000$ vehicles and routes of several hundred links each, this yields on the order of $10^8$ binary variables before capacity variables are introduced. The occupancy indicators $w_{vct}$ and the linking binaries $p_{vit}$, $q_{vit}$ couple every vehicle to every time bin: with 96 bins per day and $\sum_{v}|\mathcal{L}_v| \approx 10^8$ link-vehicle pairs, the $p_{vit}$ and $q_{vit}$ tensors alone introduce on the order of $2 \times 10^{10}$ binary variables, rendering even LP relaxation storage infeasible. The SoC update~\eqref{eq:soc_update} is bilinear in $x_{vi}$ and $b_{vi}$, and standard big-$\mathbb{M}$ linearization introduces additional auxiliary variables whose tightness depends critically on bound quality. Crucially, without constraint~\eqref{eq:capacity} the problem decomposes completely by vehicle, each vehicle's $x_{vi}$ decisions are independent, so the capacity constraint is the sole source of inter-vehicle coupling. This decomposable structure motivates solving each vehicle's unconstrained subproblem optimally via DP on a DAG and then resolving inter-vehicle conflicts through an iterative penalty heuristic that re-prices congested stations and re-solves only the affected subproblems.
+
+The framework proceeds in three stages, illustrated in \Cref{fig:pipeline}: infeasibility pruning eliminates vehicles that cannot satisfy SoC constraints regardless of charging decisions; the DAG Shortest-Path Solver finds individually optimal per-vehicle charging schedules; and the Congestion Penalty Heuristic resolves inter-vehicle capacity conflicts. Each stage is detailed in the following paragraphs.
+
+\begin{figure}[!ht]
+\centering
+\begin{tikzpicture}[
+    box/.style={draw, rounded corners=4pt, minimum width=3.8cm, minimum height=1.15cm,
+                text centered, font=\small, fill=#1, text width=3.6cm, text=black},
+    arr/.style={->, >=stealth, very thick, black},
+    ann/.style={font=\footnotesize, black, align=center, text width=3.6cm}
+]
+\node[box=blue!22]   (p1) at (0,   0) {\textbf{Infeasibility Pruning}\\Forward reachability check};
+\node[box=green!18]  (p2) at (5.2, 0) {\textbf{DAG Shortest-Path Solver}\\Per-vehicle DP (parallel)};
+\node[box=orange!22] (p3) at (10.4,0) {\textbf{Congestion Penalty Heuristic}\\Iterative re-pricing + FIFO fallback};
+\draw[arr] (p1.east)--(p2.west);
+\draw[arr] (p2.east)--(p3.west);
+\end{tikzpicture}
+\caption{The three-stage solution framework.}
+\label{fig:pipeline}
+\end{figure}
+
+Before invoking the DAG solver, a forward-pass reachability heuristic efficiently identifies vehicles that cannot complete their journey without violating $\underline{S}$, regardless of charging decisions. \Cref{alg:prune} details the check. The key operation is a lookahead: at each link with charger access, the algorithm checks whether charging now is necessary to reach the next charging opportunity. If a vehicle cannot reach any charger before SoC drops below $\underline{S}$, it is marked infeasible and excluded from the DAG solver. This check is conservative by design but may pass some vehicles that the DAG solver will later find infeasible due to SoC discretization.
+
+\begin{algorithm}[!ht]
+\caption{Infeasibility Pruning (Forward Reachability Check)}\label{alg:prune}
+\SetArgSty{textnormal}
+\footnotesize
+\SetKwInOut{Input}{Input}
+\SetKwInOut{Output}{Output}
+\Input{Vehicle set $\mathcal{V}$; link parameters $\{E_{vi}^{\tau}\}$; nearest-charger map $\{E_{vi}^{\delta}, T_{vi}^{\delta}\}$; $B_{v}$; $\underline{S}$; $\overline{S}$}
+\Output{Pruned vehicle set $\mathcal{V}' \subseteq \mathcal{V}$}
+\SetAlgoLined
+
+$\mathcal{V}' \leftarrow \emptyset$\;
+\ForEach{vehicle $v \in \mathcal{V}$}{
+    $b \leftarrow B_{v}$;\quad $\text{feasible} \leftarrow \text{true}$\;
+    Identify ordered list of charging opportunities: $\mathcal{O}_v = \{(i, E_{vi}^{\delta}) : i \in \mathcal{L}_v,\; \mathcal{C}_{vi} \neq \emptyset\}$\;
+    Append sentinel beyond last link to $\mathcal{O}_v$\;
+    \ForEach{link $i \in \mathcal{L}_v$ in order}{
+        \If{$b - E_{vi}^{\tau} < \underline{S}$}{
+            $\text{feasible} \leftarrow \text{false}$;\quad \textbf{break}\;
+        }
+        $b \leftarrow b - E_{vi}^{\tau}$\;
+        \If{link $i$ has charger access}{
+            Let $(j, E_{vj}^{\delta})$ be the next opportunity after $i$\;
+            $\text{energy\_to\_next} \leftarrow \sum_{k=i+1}^{j} E_{vk}^{\tau} + E_{vj}^{\delta}$\;
+            \If{$b < \text{energy\_to\_next} + \underline{S}$}{
+                \If{$b - E_{vi}^{\delta} < \underline{S}$}{
+                    $\text{feasible} \leftarrow \text{false}$;\quad \textbf{break}\;
+                }
+                $b \leftarrow \overline{S} - E_{vi}^{\delta}$ \tcp*{charge now}
+            }
+        }
+        \If{$b < \underline{S}$}{$\text{feasible} \leftarrow \text{false}$;\quad \textbf{break}}
+    }
+    \If{feasible}{$\mathcal{V}' \leftarrow \mathcal{V}' \cup \{v\}$}
+}
+\Return $\mathcal{V}'$\;
+\end{algorithm}
+
+For a single vehicle in isolation, ignoring charger capacity, the problem of finding the minimum-cost sequence of charging stops is equivalent to a shortest-path problem on a DAG. This key structural insight, which follows directly from the total order of links along the route and the Markovian nature of SoC, is what makes per-vehicle optimality computationally feasible.
+
+For vehicle $v$ with route $\mathcal{L}_v$, define a DAG $G_v = (\mathcal{N}_v, \mathcal{A}_v)$ where nodes are $(i, s)$ pairs: $i \in \mathcal{L}_v$ is the link index and $s \in \{0, 1, \ldots, B\}$ is a discretized SoC bucket. With bucket size $\delta$ (\%), the number of buckets is $B = \lceil(\overline{S} - \underline{S})/\delta\rceil$. The source node is $(\ell_{v,1}, s_0)$ where $s_0 = \lfloor(B_v - \underline{S})/\delta\rfloor$. Any node $(\ell_{v,N_v}, s)$ with $s \geq 0$ is a valid terminal. Two arc types exist:
+
+\begin{itemize}[noitemsep, topsep=2pt]
+    \item A travel arc $(i, s) \to (i+1,\; s - \epsilon_i)$, where $\epsilon_i = \max(1, \lceil E_{vi}^{\tau}/\delta \rceil)$ is link $i$'s energy consumption in buckets. The arc cost is zero and the arc exists only if $s - \epsilon_i \geq 0$.
+    \item A charge-then-travel arc $(i, s) \to (i+1,\; B - \delta_i - \epsilon_i)$, representing a detour to the nearest station at link $i$'s endpoint, a full recharge to $\overline{S}$, a return to the endpoint, and traversal of link $i+1$. Here $\delta_i = \lceil E_{vi}^{\delta}/\delta \rceil$ is the one-way detour energy in buckets: the vehicle spends $E_{vi}^{\delta}$ reaching the charger and $E_{vi}^{\delta}$ returning, but recharges to $\overline{S}$ in between, so only the return leg's consumption is unrecovered. The arc cost is $2T_{vi}^{\delta} C^\tau + \pi_c$ (round-trip time cost) where $\pi_c \geq 0$ is a congestion penalty (zero during the DAG solver stage). The arc exists only if $s - \epsilon_i \geq \lceil E_{vi}^{\delta}/\delta\rceil$ (sufficient SoC after traversing link $i$ to reach the charger).
+
+    
+\end{itemize}
+
+Since link indices are topologically ordered, the DAG shortest path is solved by a forward DP pass in $O(B|\mathcal{L}_v|)$ time per vehicle. Let $\text{cost}^*(i, s)$ denote the minimum-cost path from source to node $(i, s)$:
+\begin{equation}
+    \text{cost}^*(i+1, s') = \min_{\substack{(i,s) \in \mathcal{N}_v \\ (i,s) \to (i+1,s') \in \mathcal{A}_v}}
+    \Bigl[\, \text{cost}^*(i, s) + a\bigl((i,s),(i+1,s')\bigr) \Bigr]
+    \label{eq:dp}
+\end{equation}
+where $a(\cdot,\cdot)$ is the arc cost. Parent pointers recorded during the forward pass are traced backward from the minimum-cost terminal node to reconstruct the sequence of charging stops. A deterministic schedule replay then simulates the vehicle's full journey with those stops, producing activity records (travel, detour-to-charger, charging, detour-return) with exact timing, SoC levels, distances, and costs, and validates SoC feasibility at every step. All vehicles are solved independently in parallel via process-based parallelism. \Cref{alg:dag} summarizes the procedure.
+
+\begin{algorithm}[!ht]
+\caption{Per-Vehicle DAG Shortest-Path Solver}\label{alg:dag}
+\SetArgSty{textnormal}
+\footnotesize
+\SetKwInOut{Input}{Input}
+\SetKwInOut{Output}{Output}
+\Input{Vehicle set $\mathcal{V}'$; link parameters; nearest-charger map; $B_{v}$; $\underline{S}$, $\overline{S}$; $\delta$; $C^\tau$; penalties $\{\pi_c\}$ (zero in the DAG solver stage)}
+\Output{Schedules $\{\Sigma_v\}_{v \in \mathcal{V}'}$: charging stops, activity records, feasibility flag}
+\SetAlgoLined
+
+\ForEach{vehicle $v \in \mathcal{V}'$ \textbf{(in parallel)}}{
+    $B \leftarrow \lceil(\overline{S}-\underline{S})/\delta\rceil$;\quad $s_0 \leftarrow \lfloor(B_{v}-\underline{S})/\delta\rfloor$\;
+    Initialize $\text{cost}[0, s_0] \leftarrow 0$; all other $\text{cost}[i,s] \leftarrow \infty$; parent $\leftarrow -1$\;
+    \ForEach{link $i \in \mathcal{L}_v$ in order}{
+        \For{$s \leftarrow 0$ \KwTo $B$}{
+            \If{$\text{cost}[i,s] = \infty$}{\textbf{continue}}
+            \tcp{TRAVEL arc}
+            $s' \leftarrow s - \epsilon_i$\;
+            \If{$s' \geq 0$ \textbf{and} $\text{cost}[i,s] < \text{cost}[\text{next}(i),s']$}{
+                $\text{cost}[\text{next}(i),s'] \leftarrow \text{cost}[i,s]$;\quad $\text{parent}[\text{next}(i),s'] \leftarrow (i,s,\text{TRAVEL})$\;
+            }
+            \tcp{CHARGE-THEN-TRAVEL arc}
+            \If{charger exists at link $i$ endpoint \textbf{and} $s - \epsilon_i \geq \lceil E_{vi}^{\delta}/\delta\rceil$}{
+                $s' \leftarrow B - \delta_i - \epsilon_i$\;
+                $a \leftarrow 2T_{vi}^{\delta} C^\tau + \pi_{c(i)}$\;
+                \If{$s' \geq 0$ \textbf{and} $\text{cost}[i,s] + a < \text{cost}[\text{next}(i),s']$}{
+                    $\text{cost}[\text{next}(i),s'] \leftarrow \text{cost}[i,s]+a$;\quad $\text{parent}[\text{next}(i),s'] \leftarrow (i,s,\text{CHARGE})$\;
+                }
+            }
+        }
+    }
+    $s^* \leftarrow \arg\min_s \text{cost}[\ell_{v,N_v}, s]$\;
+    \If{$\text{cost}[\ell_{v,N_v}, s^*] = \infty$}{
+        $\Sigma_v \leftarrow \text{infeasible}$;\quad \textbf{continue}\;
+    }
+    Backtrack parent pointers from $(\ell_{v,N_v}, s^*)$ to extract charging stops $\mathcal{X}_v = \{i \in \mathcal{L}_v : \text{CHARGE arc used at link }i\}$\;
+    Replay journey with stops $\mathcal{X}_v$: simulate SoC, time, distance, cost at each activity\;
+    $\Sigma_v \leftarrow$ (charging stops, activity records, feasibility flag)\;
+}
+\Return $\{\Sigma_v\}$\;
+\end{algorithm}
+
+After the DAG solver, each vehicle holds its individually optimal schedule. However, multiple vehicles may schedule charging at the same station in overlapping time windows, exceeding its plug count $Z_c$. The congestion penalty heuristic resolves these conflicts iteratively. \Cref{alg:phase3} details the procedure.
+
+The core idea is to add a heuristic penalty $\pi_c$ to the charge-then-travel arc costs of congested stations, making those stations less attractive in the DAG, and then re-solve only the affected vehicles. The penalty is set proportional to the station's peak plug overflow, the maximum number of simultaneous users above $Z_c$ across all 15-minute time bins, and is doubled when progress stalls. This is a heuristic: there are no dual variables, no subgradient updates, and no optimality bound. Its purpose is to reduce congestion in practice while keeping each iteration computationally tractable (only affected vehicles are re-solved). A FIFO fallback guarantees that every schedulable vehicle receives a capacity-respecting outcome regardless of whether the penalty iterations fully resolve all violations.
+
+\begin{algorithm}[!ht]
+\caption{Congestion Penalty Heuristic with FIFO Fallback}\label{alg:phase3}
+\SetArgSty{textnormal}
+\footnotesize
+\SetKwInOut{Input}{Input}
+\SetKwInOut{Output}{Output}
+\Input{Schedules $\{\Sigma_v\}$ from DAG solver; plug counts $\{Z_c\}$; $C^\omega$; $\lambda$; $\overline{K}$; $\varepsilon$; time limit $T_{\lim}$}
+\Output{Capacity-resolved schedules $\{\Sigma_v\}$ with wait costs}
+\SetAlgoLined
+
+Compute station occupancy: for each $c \in \mathcal{C}$, bin all $[s_{vi}, s_{vi}+u_{vi}]$ intervals into 15-min bins; record overflow $\omega_{ct} = \max(0, \sum_v w_{vct} - Z_c)$\;
+$\text{overflow} \leftarrow \sum_{c,t} \omega_{ct}$\;
+\If{$\text{overflow} = 0$}{\Return $\{\Sigma_v\}$}
+$\text{prev\_overflow} \leftarrow \text{overflow}$\;
+\For{$k \leftarrow 1$ \KwTo $\overline{K}$}{
+    \If{elapsed time $> T_{\lim}$}{\textbf{break}}
+    \ForEach{congested station $c$}{
+        $\pi_c \leftarrow \lambda  \max_t \omega_{ct}$ \tcp*{penalty proportional to peak overflow}
+    }
+    $\mathcal{A} \leftarrow \{v : \Sigma_v \text{ uses any station } c \text{ with } \pi_c > 0\}$ \tcp*{affected vehicles}
+    \If{$\mathcal{A} = \emptyset$}{\textbf{break}}
+    Re-solve \Cref{alg:dag} for $v \in \mathcal{A}$ with penalty costs $\{\pi_c\}$; update $\{\Sigma_v\}_{v \in \mathcal{A}}$\;
+    Recompute station occupancy and $\text{overflow}$\;
+    \If{$\text{overflow} = 0$}{\textbf{break}}
+    $\text{improvement} \leftarrow (\text{prev\_overflow} - \text{overflow}) / \text{prev\_overflow}$\;
+    \If{$\text{improvement} < \varepsilon$ \textbf{and} $k > 2$}{
+        $\lambda \leftarrow 2\lambda$ \tcp*{double penalty on stall}
+    }
+    $\text{prev\_overflow} \leftarrow \text{overflow}$\;
+}
+\If{$\text{overflow} > 0$}{
+    \tcp{FIFO fallback: simulate queue at each station}
+    \ForEach{station $c \in \mathcal{C}$ with overflow}{
+        Sort arriving vehicles by scheduled arrival time\;
+        Maintain $Z_c$ plug-free-time trackers, initialized to 0\;
+        \ForEach{vehicle $v$ arriving at $c$}{
+            $t_{\text{free}} \leftarrow \min$ plug-free time\;
+            $w_v \leftarrow \max(0,\; t_{\text{free}} - \text{arrival}(v))$ \tcp*{wait time}
+            Update plug-free time; $\Sigma_v.\text{wait\_cost} \mathrel{+}= w_v C^\omega$\;
+        }
+    }
+}
+\Return $\{\Sigma_v\}$\;
+\end{algorithm}
+
+% =============================================================================
+\section{Numerical Experiments}\label{sec:results}
+% =============================================================================
+
+This section presents the experimental design, data sources, and results. \cref{sec:design} describes the travel demand, charging infrastructure, EV specification distributions, and the three-tier economic evaluation framework used throughout the experiments. \cref{sec:casestudy} reports a $2 \times 2$ case study comparing DCFC and L2 charging networks at two power levels using the full national trajectory dataset (representing 1\% of monthly travel). \cref{sec:sensitivity} presents a four-parameter sensitivity analysis conducted on a subsample to identify which EV technology and operational parameters most influence cost competitiveness.
+
+\subsection{Experimental Design}\label{sec:design}
+
+Travel demand is generated by the POLARIS agent-based simulation framework~\cite{auld_2016}, which synthesizes national-level personal vehicle trips over a monthly timeframe. The full synthetic dataset contains 2,768,665 personal vehicle trips, representing nearly 1\% of U.S. national long-distance personal travel \cite{bts2006america}. All trips are routed through the national road network using a static shortest-path algorithm, yielding link-level trajectories with per-link travel times, distances, and sequences. Trips with origins or destinations in Alaska or Hawaii are excluded. This produces the full trajectory dataset used in the Case Study (\Cref{sec:casestudy}).
+
+Because 2,768,665 trajectories are computationally time-consuming for parametric sensitivity analysis, a random 1\% subsample of 27,687 trajectories is drawn from this dataset for the Sensitivity Analysis (\Cref{sec:sensitivity}). This subsample represents 0.01\% of U.S. national long-distance personal travel. EV-specific characteristics, range, discharge rate, and starting SoC, are assigned stochastically to each trajectory in both datasets, as described below and detailed in \Cref{alg:preprocess}.
+
+The charging network is sourced from the AFDC \cite{afdc_2026}, comprising 14,260 DCFC stations with a total of 68,641 plugs across the United States. Station locations and plug counts are treated as fixed inputs. Unless otherwise stated, we use this DCFC stations data for the analysis in the upcoming sections.
+
+\Cref{tab:params} summarizes all input parameter values used in the experiments, together with their units, baseline values or ranges, and supporting references. EV range is drawn from a uniform distribution over $[\underline{R}, \overline{R}]$, discharge rate from a triangular distribution with bounds $[\underline{\rho}, \overline{\rho}]$ and mode $\underline{\rho}$, and starting SoC from a triangular distribution with bounds $[\underline{B}, \overline{B}]$ and mode $\overline{B}$. The detour speed $\bar{v}$ governs the time cost of the Manhattan distance detour from a link endpoint to the nearest charger.
+
+\begin{table*}[!htb]
+\centering
+\footnotesize
+\caption{Parameter values used in the experiments.}\label{tab:params}
+\begin{tabularx}{\textwidth}{l >{\raggedright\arraybackslash}X l >{\raggedright\arraybackslash}X}
+\toprule
+\textbf{Symbol} & \textbf{Meaning (unit)} & \textbf{Value / Range} & \textbf{Reference} \\
+\midrule
+\multicolumn{4}{l}{\textit{Simulation parameters}} \\
+$\underline{B},\, \overline{B}$ & Starting SoC bounds (\%) & 60 -- 100 & \cite{needell_2016} \\
+$C^\tau$ & Detour cost rate (\$/hr) & 70 & \cite{usdot_vot_2024} \\
+$C^\omega$ & Waiting cost rate (\$/hr) & 50 & \cite{usdot_vot_2024} \\
+$\overline{K}$ & Maximum penalty iterations & 15 & -- \\
+$\underline{R},\, \overline{R}$ & EV range bounds (miles) & 150 -- 350 & \cite{iea_2024,mazda_range_2026} \\
+$\underline{S}$, $\overline{S}$ & Operational SoC (\%) bounds & 20 -- 80 & \cite{ev_battery_2022} \\
+$W_c$ & Charger power (W) & 50,000 & \cite{afdc_2026} \\
+$\delta$ & SoC bucket size (\%) & 1 & -- \\
+$\Delta$ & Time bin width (sec) & 900 & -- \\
+$\lambda$ & Initial congestion penalty multiplier & 10.0 & -- \\
+$\bar{v}$ & Assumed detour speed (mph) & 40 & Assumed \\
+$\underline{\rho},\, \overline{\rho}$ & Discharge rate bounds (Wh/mile) & 250 -- 750 & \cite{iea_2024,afdc_2026} \\
+\midrule
+\multicolumn{4}{l}{\textit{Tier~1 economic parameters (operational)}} \\
+$P^{\gamma}$ & Gasoline price (\$/gallon) & 3.50 & \cite{eia_gas_2024} \\
+$P^{\xi}$ & Electricity price (\$/kWh) & 0.15 & \cite{eia_elec_2024} \\
+$\eta^{\gamma}$ & ICE fuel economy (mpg) & 25 & \cite{epa_mpg_2023} \\
+\midrule
+\multicolumn{4}{l}{\textit{Tier~2 economic parameters (total cost of ownership)}} \\
+$F$ & Avg.\ long-distance trips per vehicle per week & 3.0 & \cite{bts2006america} \\
+$L$ & Vehicle useful life (years) & 12 & Assumed \\
+$M^{\gamma}$ & ICE maintenance cost (\$/mile) & 0.09 & \cite{aaa_2024} \\
+$M^{\xi}$ & EV maintenance cost (\$/mile) & 0.04 & \cite{aaa_2024} \\
+$V^{\gamma}$ & ICE vehicle purchase price (\$) & 35,000 & \cite{iea_2024} \\
+$\alpha$ & EV purchase price ratio (EV/ICE) & 1.2 & \cite{iea_2024} \\
+\midrule
+\multicolumn{4}{l}{\textit{Tier~3 economic parameters (infrastructure)}} \\
+$L_c$ & Charger useful life (years) & 12 & Assumed \\
+$\kappa$ & Charger unit capital expenditure (CAPEX) (\$/plug) & 50,000 & \cite{afdc_2026} \\
+$\mu$ & Charger annual operations and maintenance (O\&M) (\% of CAPEX) & 8 & Assumed \\
+$\sigma$ & Demand sample fraction & 0.01 & -- \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+\Cref{alg:preprocess} details the preprocessing steps, which transform raw network and demand data into scheduling-ready structures: EV specifications are sampled, per-link energy parameters are computed, the nearest-charger map is built via a BallTree index, and vehicles that do not need charging are filtered out.
+
+\begin{algorithm}[!ht]
+\caption{Preprocessing}\label{alg:preprocess}
+\SetArgSty{textnormal}
+\footnotesize
+\SetKwInOut{Input}{Input}
+\SetKwInOut{Output}{Output}
+\Input{O-D demand table, road network, charger locations $\mathcal{C}$ with plug counts $Z_c$, config parameters}
+\Output{Filtered trajectory set $\mathcal{V}$; per-vehicle link parameters $E_{vi}^{\tau}, T_{vi}^{\tau}, D_{vi}$; nearest-charger map; starting SoCs $B_{v}$}
+\SetAlgoLined
+
+Compute shortest-path for all O-D pairs through the road network via parallel static assignment\;
+Exclude trips with origin or destination in excluded states (e.g., Alaska, Hawaii)\;
+\ForEach{vehicle $v \in \mathcal{V}$}{
+    Sample EV range $r_v \sim \text{Uniform}(\underline{R}, \overline{R})$\;
+    Sample discharge rate $\rho_v \sim \text{Triangular}(\underline{\rho}, \underline{\rho}, \overline{\rho})$\;
+    Set $Q_v \leftarrow r_v \times \rho_v$\;
+    Compute $E_{vi}^{\tau} \leftarrow (D_{vi}/1609.344) \times \rho_v / Q_v \times 100$ for all $i \in \mathcal{L}_v$\;
+}
+Remove any vehicle $v$ with $\max_{i \in \mathcal{L}_v} E_{vi}^{\tau} > (\overline{S} - \underline{S})/2$ \tcp*{long-link pruning}
+Build BallTree index over charger coordinates (Manhattan metric)\;
+\ForEach{unique link-endpoint location $\ell$}{
+    Query BallTree: $(c^*_\ell, d^*_\ell) \leftarrow \arg\min_{c \in \mathcal{C}} \|x_\ell - x_c\|_1$\;
+    Compute $T_\ell^\delta \leftarrow d^*_\ell / \bar{v}$;\quad $E_\ell^{\delta} \leftarrow (d^*_\ell / 1609.344) \times \rho_v / Q_v \times 100$\;
+}
+\ForEach{vehicle $v \in \mathcal{V}$}{
+    Sample $B_{v} \sim \text{Triangular}(\underline{B}, \overline{B}, \overline{B})$\;
+    \If{$B_{v} - \sum_{i \in \mathcal{L}_v} E_{vi}^{\tau} \geq \underline{S}$}{
+        Remove $v$ from $\mathcal{V}$ \tcp*{needs-charging filter}
+    }
+}
+\Return filtered $\mathcal{V}$, link parameters, nearest-charger map, $\{B_{v}\}$\;
+\end{algorithm}
+
+\subsection{Case Study}\label{sec:casestudy}
+
+To examine the interaction between charging infrastructure type and charger power level on long-distance EV travel viability, a $2 \times 2$ case study is conducted using the full trajectory dataset (approximately 2.77 million trajectories). Two charging networks are compared: (i) the DCFC network, comprising 14,260 stations with 68,362 plugs, and (ii) the AFDC L2 network, comprising 64,477 stations with 169,385 plugs. While one location may house both DCFC and L2 chargers in the AFDC database, we separated them and considered two disjoint charging networks. For each network, two charger power levels are tested: a baseline and an upgraded specification. For DCFC, 50~kW (the current minimum for DCFC) and 350~kW (representative of next-generation fast chargers) are used. For L2, 5~kW (standard residential-grade) and 15~kW (high-power L2) are used. All four scenarios share the same EV specification distribution: range drawn uniformly from 150--350~miles, discharge rate from 250--750~Wh/mile, starting SoC from 60--100\%, and operational SoC bounds of 20--80\%, as described in the previous section.
+
+Outcomes are evaluated through a three-tier economic analysis that progressively expands the cost boundary, computed at the individual path level and then aggregated. Let $D_v$ denote the original trip distance (miles) and $D_v^{\delta}$ the total detour distance (miles) for vehicle $v$; the EV covers a total distance of $D_v + D_v^{\delta}$. The average discharge rate $\bar{\rho} = (\underline{\rho} + \overline{\rho})/2$ is used to compute per-mile electricity consumption. Detour cost and wait cost for each path are outputs of the scheduling optimization (not assumed parameters), ensuring internal consistency between the operational model and the economic evaluation. \cref{tab:params} lists all parameter values, organized by tier, with their baseline values and references.
+
+Tier~1 (Operational) compares ICE fuel cost against EV electricity, detour, and waiting costs:
+\begin{align}
+    C_{v}^{\gamma,1} &= \frac{D_v P^{\gamma} }{\eta^{\gamma}} \label{eq:t1ice} \\
+    C_{v}^{\xi,1} &= \frac{P^{\xi}(D_v + D_v^{\delta}) \bar{\rho}}{1000} + C_v^{\tau} + C_v^{\omega} \label{eq:t1ev}
+\end{align}
+where $C_v^{\tau}$ is the total detour time cost and $C_v^{\omega}$ is the total FIFO wait cost for vehicle $v$, both produced by the scheduling framework. A positive savings percentage $100 \times (C_{v}^{\gamma,1} - C_{v}^{\xi,1})/C_{v}^{\gamma,1}$ indicates EVs are cheaper; a negative value indicates EVs are more expensive.
+
+Tier~2 (TCO) adds per-trip vehicle purchase amortization and per-mile maintenance to both sides:
+\begin{align}
+    C_{v}^{\gamma,2} &= C_{v}^{\gamma,1} + \frac{V^{\gamma}}{ 52 FL} + M^{\gamma} d_v \label{eq:t2ice} \\
+    C_{v}^{\xi,2} &= C_{v}^{\xi,1} + \frac{\alpha V^{\gamma}}{ 52 FL} + M^{\xi} (d_v + d_v^{\delta}) \label{eq:t2ev}
+\end{align}
+The vehicle purchase cost is amortized over all long-distance trips in a vehicle's lifetime ($52FL$), where $F = 3$ trips/week and $L = 12$ years. The EV purchase premium is captured by $\alpha = 1.2$ (20\% above the ICE price of \$35,000). The EV maintenance advantage (\$0.04/mi vs.\ \$0.09/mi for ICE) reflects lower brake, transmission, and powertrain costs.
+
+Tier~3 (Infrastructure) adds amortized charging infrastructure capital and operating costs to the EV side:
+\begin{align}
+    C_{v}^{\xi,3} &= C_{v}^{\xi,2} + \frac{ Z^{\text{total}} (1/L_c + \mu)\kappa}{52FN^{\text{national}}} \label{eq:t3ev}
+\end{align}
+where $Z^{\text{total}}$ is the total number of plugs in the network, and $N^{\text{national}}$ is the estimated national vehicle count, obtained by dividing the number of feasible paths by $F$ and scaling up by $1/\sigma$ (since the sample represents fraction $\sigma$ of national demand). The ICE cost at Tier~3 is unchanged ($C_{v}^{\gamma,3} = C_{v}^{\gamma,2}$). At each tier, we report both the mean per-path savings percentage and the share of individual paths for which the EV is cheaper than ICE.
+
+\begin{figure*}[!htb]
+\centering
+\begin{subfigure}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{dcfc_charger_map.png}
+    \caption{DCFC network (14,260 stations, 68,362 plugs)}
+    \label{fig:charger_map_dcfc}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{l2_charger_map.png}
+    \caption{L2 network (64,477 stations, 169,385 plugs)}
+    \label{fig:charger_map_l2}
+\end{subfigure}
+
+\vspace{4pt}
+\includegraphics[width=.6\textwidth]{charger_map_legend.png}
+\caption{Geographic distribution of charging stations across the contiguous United States. Marker size indicates plug count at each station.}
+\label{fig:charger_maps}
+\end{figure*}
+
+\Cref{fig:charger_map_dcfc} and \Cref{fig:charger_map_l2} show the geographic distribution of the two networks, and \cref{tab:casestudy} reports the key operational and economic metrics across the four scenarios. The number of paths entering the scheduler differs between the two networks (2,210,573 for DCFC vs.\ 2,169,999 for L2) because the preprocessing filters depend on charger geography: the nearest-charger map, need to charging filter (which removes vehicles that can complete their trip without charging), and the long-link pruning step all use charger locations as input, so different networks produce slightly different filtered path sets from the same underlying demand. Despite this difference, feasibility rates are nearly identical at approximately 29\% across all scenarios. This invariance is expected: feasibility is determined by whether a vehicle's route passes close enough to \emph{any} charger to maintain SoC above $\underline{S}$, which depends on network geography and vehicle specifications but not on charger power. The slight difference between DCFC (644,771 feasible paths) and L2 (633,692) reflects the different spatial coverage of the two networks rather than any power-related effect.
+
+The operational differences, however, are dramatic. Average charging time per stop ranges from 4.1~minutes at 350~kW DCFC to 292~minutes (nearly 5 hours) at 5~kW L2, a 71-fold difference. Average detour time per path also varies substantially, from 31.8~minutes (DCFC 350~kW) to 57.4~minutes (L2 5~kW), reflecting the fact that L2 stations are predominantly located in urban areas (residential, workplace) rather than along highway corridors, resulting in longer detours for intercity travelers despite the L2 network having 4.5$\times$ more stations and 2.5$\times$ more plugs. Additional travel distance ranges from 4.2\% (DCFC 350~kW) to 7.7\% (L2 5~kW) of the original ICE trip distance.
+
+\begin{table*}[!htb]
+\centering
+\footnotesize
+\caption{Case study results: DCFC vs.\ L2 charging networks at two power levels.}\label{tab:casestudy}
+\begin{tabularx}{\textwidth}{l *{4}{>{\centering\arraybackslash}X}}
+\toprule
+& \multicolumn{2}{c}{\textbf{DCFC Network}} & \multicolumn{2}{c}{\textbf{L2 Network}} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5}
+\textbf{Metric} & \textbf{50 kW} & \textbf{350 kW} & \textbf{5 kW} & \textbf{15 kW} \\
+\midrule
+\multicolumn{5}{l}{\textit{Infrastructure}} \\
+Stations & 14,260 & 14,260 & 64,477 & 64,477 \\
+Total plugs & 68,362 & 68,362 & 169,385 & 169,385 \\
+\midrule
+\multicolumn{5}{l}{\textit{Feasibility}} \\
+Paths into scheduler & 2,210,573 & 2,210,573 & 2,169,999 & 2,169,999 \\
+Feasible paths & 644,771 & 644,771 & 633,692 & 633,692 \\
+Feasibility rate (\%) & 29.2 & 29.2 & 29.2 & 29.2 \\
+\midrule
+\multicolumn{5}{l}{\textit{Charging operations}} \\
+Avg.\ charge time per stop (min) & 29.0 & 4.1 & 292.3 & 96.7 \\
+Avg.\ detour time per path (min) & 39.2 & 31.8 & 57.4 & 46.0 \\
+Additional travel distance (\%) & 5.2 & 4.2 & 7.7 & 6.2 \\
+\midrule
+\multicolumn{5}{l}{\textit{Economic analysis}} \\
+Tier~1 mean savings (\%) & $-17.6$ & $-6.1$ & $-46.3$ & $-28.5$ \\
+Tier~1 paths with EV cheaper (\%) & 27.8 & 44.5 & 17.8 & 26.0 \\
+Tier~2 mean savings (\%) & $+4.5$ & $+10.5$ & $-10.6$ & $-1.3$ \\
+Tier~2 paths with EV cheaper (\%) & 71.3 & 86.2 & 43.9 & 59.6 \\
+Tier~3 mean savings (\%) & $+4.4$ & $+10.4$ & $-11.0$ & $-1.7$ \\
+Tier~3 paths with EV cheaper (\%) & 71.0 & 85.9 & 43.0 & 58.8 \\
+\midrule
+\multicolumn{5}{l}{\textit{Congestion}} \\
+Total FIFO wait cost (\$M) & 4,862 & 0.045 & 670,921 & 156,100 \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+The three-tier economic analysis reveals that charger power is the dominant driver of EV cost competitiveness for long-distance travel. At Tier~1, EVs are more expensive than ICE in all four scenarios, with the cost penalty ranging from 6.1\% (DCFC 350~kW) to 46.3\% (L2 5~kW). The primary driver of this penalty is detour time cost: even though electricity is substantially cheaper than gasoline per mile, the time overhead of detouring to chargers and charging offsets this advantage. At 5~kW L2, charging time alone (292~min/stop $\times$ 8.5 stops $\approx$ 41~hours per trip) makes EV operational costs nearly 50\% higher than ICE. At Tier~2, the EV maintenance advantage (\$0.05/mi savings) and ICE vehicle amortization partially offset the operational penalty. DCFC scenarios cross into positive territory: EVs are 4.5\% cheaper at 50~kW and 10.5\% cheaper at 350~kW on a per-trip TCO basis. L2 scenarios remain EV-unfavorable but the gap narrows substantially, from $-46.3$\% to $-10.6$\% (5~kW) and from $-28.5$\% to $-1.3$\% (15~kW). At Tier~2, 86.2\% of individual feasible paths are cheaper by EV under DCFC 350~kW, compared to only 43.9\% under L2 5~kW. Tier~3 adds amortized infrastructure costs. Because DCFC has fewer plugs (68K vs.\ 169K) and each plug costs \$50,000 with a 12-year lifespan and 8\% annual O\&M, the per-trip infrastructure burden is modest and Tier~3 results are nearly identical to Tier~2. The L2 network's 2.5$\times$ higher plug count increases infrastructure cost slightly, shifting L2 results by approximately 0.4 percentage points relative to Tier~2.
+
+The most striking finding concerns congestion: FIFO wait costs span seven orders of magnitude across scenarios. At DCFC 350~kW, vehicles charge so quickly (4.1~min average) that plug occupancy rarely overlaps, producing only \$45,000 in total wait costs across all 644,771 feasible paths. At DCFC 50~kW, the sixfold longer charging time (29~min) creates substantial temporal overlap at popular stations, yielding \$4.9~billion in wait costs. The L2 scenarios produce wait costs of \$156~billion (15~kW) and \$671~billion (5~kW), reflecting extreme congestion cascades: when each charging session occupies a plug for hours, queues build upon queues at high-utilization stations. These FIFO wait costs represent theoretical worst-case congestion under the assumption that all feasible vehicles charge simultaneously at en-route stations. In practice, such extreme queuing would trigger behavioral responses, trip rescheduling, mode switching, or avoidance of long-distance EV travel altogether. The framework's value lies not in the absolute magnitude of these costs but in their relative ordering: they quantify the infrastructure's \textit{capacity margin} under each technology scenario and demonstrate that charger power, not plug count, is the binding constraint on long-distance EV network throughput.
+
+Three conclusions emerge from the case study, and it is worth to highlight that these findings are highly-dependent on the parametric value choices. First, feasibility is geography-dependent, not power-dependent: charger power does not affect whether a vehicle can complete its trip, and only network spatial coverage matters for feasibility. Second, DCFC is necessary for long-distance travel, L2 charging, even at the denser network with 4.5$\times$ more stations and 2.5$\times$ more plugs, produces charging times and congestion levels that are incompatible with practical intercity travel, regardless of whether L2 power is 5~kW or 15~kW. Third, ultra-fast charging closes the TCO gap: at 350~kW, EVs achieve Tier~2 cost parity with ICE for 86\% of feasible paths, and the residual Tier~1 operational penalty of 6.1\% is driven entirely by detour time, a quantity that depends on network geography rather than charging technology, and that can be reduced through strategic station siting along highway corridors. Each case study scenario, encompassing preprocessing, routing, scheduling, capacity resolution, replay, and economic analysis, completed in approximately 80~minutes on a 128-core HPC node.
+
+\subsection{Sensitivity Analysis}\label{sec:sensitivity}
+
+To identify which EV technology and operational parameters the framework is most sensitive to, four univariate parameter sweeps are conducted using the 1\% subsample (nearly 27,700 trajectories) at a 1\% EV adoption rate, that is 0.01\% of the monthly national travel demand. Each sweep varies one parameter across four levels while holding all others at their baseline values (\cref{tab:params}). Ten replications with distinct random seeds are run per level, yielding 50 runs per sweep and 200 runs in total. The four parameters and their levels are: EV range ($\underline{R}$--$\overline{R}$, miles) at (50, 100), (100, 200), (200, 300), (300, 400), and (400, 500); charger power ($W_c$, kW) at 50, 100, 250, 350, and 500; discharge rate upper bound ($\overline{\rho}$, Wh/mi) at 300, 400, 500, 600, and 750; and operational SoC bounds ($\underline{S}$--$\overline{S}$, \%) at (10, 100), (20, 100), (30, 100), (20, 80), and (30, 80).
+
+\cref{tab:sensitivity} reports the mean and standard deviation across replications for each parameter level. To facilitate comparison across parameters, we measure sensitivity as the total range of Tier~2 mean savings across the tested levels, since Tier~2 captures the full cost-of-ownership picture most relevant for policy and consumer decisions.
+
+\begin{table*}[!htb]
+\centering
+\footnotesize
+\caption{Sensitivity analysis results across four parameter sweeps. Values are mean $\pm$ standard deviation over 10 replications. Baseline values are marked with $^*$.}\label{tab:sensitivity}
+\begin{tabularx}{\textwidth}{l >{\centering\arraybackslash}X >{\centering\arraybackslash}X >{\centering\arraybackslash}X >{\centering\arraybackslash}X >{\centering\arraybackslash}X >{\centering\arraybackslash}X}
+\toprule
+\textbf{Parameter level} & \textbf{Feasibility (\%)} & \textbf{Tier~1 (\%)} & \textbf{Tier~2 (\%)} & \textbf{Avg.\ stops} & \textbf{Avg.\ detour (min)} & \textbf{+Dist.\ (\%)} \\
+\midrule
+\multicolumn{7}{l}{\textit{EV range (miles)}} \\
+50--100       & 27.4$\pm$0.4 & $-$37.0$\pm$2.1 & $-$6.9$\pm$0.9   & 11.4$\pm$0.1 & 34.1$\pm$0.5 & 6.6$\pm$0.1 \\
+100--200      & 28.3$\pm$0.3 & $-$0.6$\pm$0.9  & $+$12.5$\pm$0.4  & 9.5$\pm$0.0  & 24.7$\pm$0.4 & 3.7$\pm$0.1 \\
+200--300$^*$  & 29.0$\pm$0.4 & $+$14.5$\pm$0.5 & $+$21.3$\pm$0.3  & 8.3$\pm$0.1  & 19.0$\pm$0.4 & 2.5$\pm$0.0 \\
+300--400      & 31.4$\pm$0.6 & $+$18.6$\pm$0.6 & $+$24.1$\pm$0.4  & 8.1$\pm$0.1  & 17.5$\pm$0.3 & 2.2$\pm$0.0 \\
+400--500      & 32.6$\pm$0.2 & $+$21.1$\pm$0.2 & $+$26.2$\pm$0.1  & 8.2$\pm$0.1  & 16.9$\pm$0.2 & 2.0$\pm$0.0 \\
+\midrule
+\multicolumn{7}{l}{\textit{Discharge rate upper bound (Wh/mi)}} \\
+300           & 29.3$\pm$0.3 & $+$38.3$\pm$0.2 & $+$33.2$\pm$0.1  & 8.5$\pm$0.1  & 19.4$\pm$0.3 & 2.6$\pm$0.0 \\
+400           & 29.1$\pm$0.3 & $+$32.4$\pm$0.3 & $+$30.2$\pm$0.2  & 8.4$\pm$0.1  & 19.4$\pm$0.3 & 2.6$\pm$0.0 \\
+500           & 29.3$\pm$0.2 & $+$27.3$\pm$0.5 & $+$27.6$\pm$0.2  & 8.4$\pm$0.1  & 19.4$\pm$0.4 & 2.6$\pm$0.0 \\
+600           & 29.0$\pm$0.3 & $+$21.8$\pm$0.3 & $+$24.9$\pm$0.2  & 8.5$\pm$0.1  & 19.4$\pm$0.3 & 2.6$\pm$0.0 \\
+750$^*$       & 29.2$\pm$0.4 & $+$13.1$\pm$0.4 & $+$20.5$\pm$0.2  & 8.4$\pm$0.1  & 19.6$\pm$0.2 & 2.6$\pm$0.0 \\
+\midrule
+\multicolumn{7}{l}{\textit{Charger power (kW)}} \\
+50$^*$        & 29.1$\pm$0.4 & $+$13.2$\pm$0.4 & $+$20.6$\pm$0.2  & 8.4$\pm$0.1  & 19.4$\pm$0.3 & 2.6$\pm$0.0 \\
+100           & 29.3$\pm$0.2 & $+$13.5$\pm$0.4 & $+$20.7$\pm$0.2  & 8.4$\pm$0.1  & 19.3$\pm$0.2 & 2.6$\pm$0.0 \\
+250           & 29.2$\pm$0.3 & $+$13.9$\pm$0.5 & $+$21.0$\pm$0.2  & 8.5$\pm$0.1  & 19.2$\pm$0.5 & 2.5$\pm$0.0 \\
+350           & 29.4$\pm$0.4 & $+$14.0$\pm$0.4 & $+$21.0$\pm$0.2  & 8.5$\pm$0.1  & 19.1$\pm$0.3 & 2.5$\pm$0.0 \\
+500           & 28.9$\pm$0.4 & $+$14.3$\pm$0.5 & $+$21.2$\pm$0.3  & 8.4$\pm$0.1  & 18.9$\pm$0.3 & 2.5$\pm$0.0 \\
+\midrule
+\multicolumn{7}{l}{\textit{Operational SoC bounds (\%)}} \\
+10--100       & 100.0$\pm$0.0 & $+$27.4$\pm$0.2 & $+$28.9$\pm$0.1 & 5.9$\pm$0.0 & 12.1$\pm$0.1 & 1.5$\pm$0.0 \\
+20--100       & 100.0$\pm$0.0 & $+$23.3$\pm$0.1 & $+$26.4$\pm$0.1 & 6.5$\pm$0.0 & 14.2$\pm$0.1 & 1.8$\pm$0.0 \\
+30--100       & \phantom{0}99.9$\pm$0.0 & $+$17.3$\pm$0.4 & $+$22.8$\pm$0.2 & 7.3$\pm$0.0 & 17.2$\pm$0.2 & 2.2$\pm$0.0 \\
+20--80$^*$    & 29.3$\pm$0.3 & $+$13.2$\pm$0.4 & $+$20.6$\pm$0.2 & 8.5$\pm$0.1 & 19.6$\pm$0.3 & 2.6$\pm$0.0 \\
+30--80        & 29.0$\pm$0.2 & $+$1.9$\pm$0.5  & $+$14.3$\pm$0.2 & 9.9$\pm$0.1 & 25.0$\pm$0.3 & 3.5$\pm$0.0 \\
+\bottomrule
+\end{tabularx}
+\end{table*}
+
+EV range exhibits the largest sensitivity: Tier~2 swings from $-6.9$\% (50--100~mi) to $+26.2$\% (400--500~mi), a span of 33.1 percentage points. Range determines how frequently vehicles must stop, how far they must detour, and whether their trip is feasible at all, and the Tier~1 operational breakeven occurs between 100 and 200~miles of range. Operational SoC bounds produce the second-largest Tier~2 span at 14.6 percentage points, ranging from $+14.3$\% (30--80\%) to $+28.9$\% (10--100\%). This parameter also drives the single largest feasibility effect: widening the SoC window from 20--80\% to 20--100\% increases feasibility from 29\% to 100\%, because the full window eliminates the long-link pruning constraint. In practice, $\overline{S} = 100$\% is unrealistic due to battery taper charging, but the result highlights the disproportionate impact of usable SoC range on system performance. Discharge rate produces a Tier~2 span of 12.7 percentage points, ranging from $+20.5$\% ($\overline{\rho} = 750$) to $+33.2$\% ($\overline{\rho} = 300$). Crucially, discharge rate affects economics without changing feasibility (29\% across all levels): lower discharge rates reduce electricity consumption per mile, directly reducing Tier~1 energy costs.
+
+Charger power produces a Tier~2 span of only 0.6 percentage points, ranging from $+20.6$\% (50~kW) to $+21.2$\% (500~kW). This near-invariance arises because at a 1\% adoption rate, congestion is negligible, wait costs are under \$300 in all scenarios. At higher adoption rates, charger power would matter substantially, as demonstrated in the case study where wait costs ranged from \$45K to \$4.9B. This confirms that charger power is a capacity parameter, not an efficiency parameter: it matters only when demand approaches plug supply.
+
+\Cref{fig:sensitivity_summary} summarizes the sensitivity ranges across all four parameters for Tier~1 and Tier~2. For instance, 58.1 in the figure comes from $21.1 + 37.0$ reported on the first row of \cref{tab:sensitivity}. Three conclusions emerge from the analysis. First, EV range is the dominant lever: with a 33-point Tier~2 swing, range improvements yield the largest returns in cost competitiveness, underscoring the importance of continued investment in battery energy density and lightweight vehicle design for long-distance EV viability. Second, discharge rate and SoC bounds are secondary but significant, improving fleet energy efficiency (lower $\overline{\rho}$) and extending usable battery capacity (wider SoC window via better thermal management and charging algorithms) each produce 13--15 percentage points of Tier~2 improvement, representing actionable engineering targets. Third, charger power is a congestion parameter, not an efficiency parameter: at low adoption rates it barely affects costs, but its importance grows with the share of EVs on the road as demonstrated in the case study, suggesting that charger power upgrades should be prioritized at high-utilization stations rather than deployed uniformly.
+
+\begin{figure}[!ht]
+\centering
+\includegraphics[width=0.85\linewidth]{sensitivity_summary.png}
+\caption{Sensitivity range (in percentage points) of mean savings across parameter levels for Tier~1 (Operational) and Tier~2 (TCO).}
+\label{fig:sensitivity_summary}
+\end{figure}
+
+% =============================================================================
+\section{Conclusion}\label{sec:conclusion}
+% =============================================================================
+
+This paper presented a scalable, optimization-based framework for scheduling EV charging stops along long-distance O-D trajectories across the United States. The framework takes the existing charging infrastructure as fixed input and proceeds in three stages: infeasibility pruning via a forward-pass reachability heuristic, per-vehicle optimal scheduling via DP on a DAG, and capacity-aware congestion resolution through an iterative penalty heuristic with a FIFO queue fallback. Applied to approximately 2.77 million O-D trajectories derived from a 1\% sample of national personal travel demand within the POLARIS agent-based simulation framework, covering 14,260 DCFC stations with 68,362 plugs from the AFDC, the framework produces capacity-feasible schedules in under 80 minutes on a 128-core HPC node without requiring any commercial optimization solver.
+
+The $2 \times 2$ case study comparing DCFC and L2 networks at two power levels revealed three principal findings. Feasibility is governed by network geography rather than charger power, with approximately 29\% of trajectories feasible across all four scenarios. DCFC is necessary for practical long-distance EV travel: L2 charging produces average per-stop durations of nearly 5 hours, rendering intercity travel infeasible regardless of network density. Ultra-fast DCFC at 350~kW closes the TCO gap, achieving EV cost parity for 86\% of feasible paths. The four-parameter sensitivity analysis identified EV range as the dominant lever (33 percentage points of Tier~2 swing), followed by operational SoC bounds (14.6) and discharge rate (12.7), while charger power showed negligible sensitivity at low adoption rates, confirming its role as a congestion parameter whose importance scales with the share of EVs in the fleet.
+
+Several limitations bound these findings and suggest directions for future work. The model assumes linear charging at a constant rate, with all vehicles charging to $\overline{S}$ at every stop; incorporating nonlinear charging curves and partial charging would improve fidelity. Detour distances are computed as Manhattan distances at a constant speed rather than actual road distances, and each vehicle can access only its nearest station. The capacity resolution heuristic, while effective in practice, provides no optimality bound and exhibits oscillatory behavior in some scenarios. Extending the framework to multi-trip vehicle scheduling, heterogeneous charger types within a single scenario, and dynamic rerouting after charging decisions would broaden its applicability. Finally, coupling the scheduling framework with a siting optimization model, using the congestion and wait-cost outputs as feedback signals for strategic station placement, represents a natural extension that could inform infrastructure investment decisions at the national scale.
+
+\section*{Acknowledgments}
+This material is based on work supported by the U.S. Department of Energy (DOE), Office of Science, under contract number DE-AC02-06CH11357. This report and the work described were sponsored by the DOE Transportation Technologies Office (TTO) under the Pathways to Affordable, Convenient, and Efficient Regional Mobility, an initiative of the Energy Efficient Mobility Systems (EEMS) Program. Erin Boyd, a DOE Office of Critical Minerals and Energy Innovation (CMEI) manager, played an important role in establishing the project concept, advancing implementation, and providing guidance.
+
+\noindent\textbf{Author Contributions:} T. Cokyasar conducted study conception, design, data collection, analysis, and preparation. The author(s) reviewed and approved the manuscript.\\
+\noindent\textbf{AI Use:} During the preparation of this manuscript, the author(s) used Claude Opus 4.6 and Claude Sonnet 4.6 through ARGO AI platform at Argonne National Laboratory to improve language, spelling, readability, literature review, coding, and result analysis. After using these tools, the author(s) meticulously reviewed and edited the entire text, code, and references (including manuscripts and all online links) and take full responsibility for the content of the publication.\\
+\noindent\textbf{Conflict of Interest:} None declared.\\
+\noindent\textbf{ORCID:}
+\def\orcid#1{\kern .08em\href{https://orcid.org/#1}{\includegraphics[keepaspectratio,width=0.7em]{orcidlogocol.png}}}
+Taner Cokyasar \orcid{0000-0001-9687-6725} \url{https://orcid.org/0000-0001-9687-6725}\\
