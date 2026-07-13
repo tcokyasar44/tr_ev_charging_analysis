@@ -1,5 +1,4 @@
-% Transportation Research Board conference paper template
-% National-Scale EV Charging Scheduling Framework
+% EV Charging Infrastructure Readiness Assessment for T\"{u}rkiye
 \documentclass[numbered]{trbunofficial}
 
 \usepackage{graphicx}
@@ -39,7 +38,7 @@
 \crefname{algorithm}{Algorithm}{Algorithms}
 \newcommand{\secref}[1]{\hyperref[#1]{\nameref*{#1}~Section}}
 
-\title{A National-Scale EV Charging Scheduling Framework: Optimal Detour Routing Under Infrastructure Capacity Constraints}
+\title{Is T\"{u}rkiye Ready for Intercity Electric Travel? A Countrywide Charging Scheduling and Cost Analysis}
 
 \author{%
   Taner Cokyasar\textsuperscript{*}\\[4pt]
@@ -58,19 +57,19 @@
 \section*{Abstract}
 \vspace{10pt}
 \noindent\textbf{Objectives}\\
-As electric vehicle (EV) adoption grows, quantifying the scheduling burden and economic cost of long-distance travel under existing charging infrastructure is crucial. This paper evaluates how well current infrastructure serves long-distance trips and determines the travel cost premium relative to internal combustion engine (ICE) vehicles. It addresses the need to jointly optimize per-vehicle charging schedules across hundreds of thousands of vehicles simultaneously.\\
+T\"{u}rkiye is rapidly expanding its electric vehicle (EV) charging network, yet whether the current 9,641 EPDK-licensed stations can sustain cost-competitive intercity travel remains an open question. This paper assesses the readiness of T\"{u}rkiye's charging infrastructure for long-distance personal vehicle trips by jointly scheduling charging stops for millions of EVs and comparing the resulting travel costs against conventional internal combustion engine (ICE) vehicles.\\
 
 \noindent\textbf{Methods}\\
-We develop a scalable, optimization-based framework for scheduling EV charging stops along long-distance trajectories across the United States. The methodology uses three phases: infeasibility pruning, per-vehicle optimal charging schedule computation via dynamic programming on a directed acyclic graph, and capacity-aware iterative congestion resolution using a penalty-based heuristic. The framework is applied to approximately 2.7 million origin-destination trajectories from a 1\% sample of national travel demand in POLARIS, covering 14,260 Direct Current Fast Charging (DCFC) stations.\\
+We apply a scalable, solver-free optimization framework to the full T\"{u}rkiye intercity highway network constructed from OpenStreetMap data and a synthetic demand of 3 million origin--destination trips. The methodology comprises infeasibility pruning, per-vehicle optimal schedule computation via dynamic programming on a directed acyclic graph, and capacity-aware congestion resolution through an iterative penalty heuristic. Economic outcomes are evaluated through a three-tier analysis spanning operational costs, total cost of ownership, and amortized infrastructure investment.\\
 
 \noindent\textbf{Findings}\\
-The framework yields capacity-feasible schedules in under 1.3 hours on a 128-core cluster without commercial solvers. A case study comparing DCFC and Level 2 networks reveals that feasibility depends on network geography, not charger power. Additionally, 350 kW ultra-fast charging achieves total cost of ownership parity with ICE vehicles for 86\% of feasible paths.\\
+[Results will be inserted after simulation runs complete.]\\
 
 \noindent\textbf{Novelty}\\
-This study introduces the first national-scale scheduling framework optimizing en-route charging for millions of vehicles simultaneously, resolving capacity conflicts without commercial solvers.\\
+This study provides the first countrywide assessment of intercity EV charging readiness for T\"{u}rkiye, combining vehicle-level scheduling optimization with economic evaluation over a network of nearly 10,000 charging stations and 3 million synthetic trips derived from intercity travel statistics.\\
 
 \noindent\textbf{Practical Applications}\\
-Results show charger power upgrades should target high-utilization stations to resolve congestion rather than uniform deployment. This framework provides policymakers a diagnostic tool to assess how EV range, adoption rates, and energy prices impact long-distance EV travel viability.
+The analysis identifies geographic gaps in T\"{u}rkiye's charging coverage, quantifies the detour and waiting cost burden for intercity EV travelers, and informs targeted infrastructure investment decisions by the Energy Market Regulatory Authority (EPDK) and the General Directorate of Highways (KGM).
 
 \newpage
 
