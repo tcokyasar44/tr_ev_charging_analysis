@@ -86,9 +86,9 @@ This section first summarizes the scheduling framework employed (\Cref{sec:frame
 
 We employ the three-stage EV charging scheduling framework developed by \citet{cokyasar2026electrification}; the reader is referred to that work for the full mathematical formulation and algorithmic pseudocode. Here we provide a self-contained summary of the elements necessary to understand the T\"{u}rkiye application.
 
-Each EV $v$ in a set $\mathcal{V}$ follows a fixed route composed of $N_v$ directed links. A set of charging stations $\mathcal{C}$ with known locations and plug counts is given. At the endpoint of each link, the vehicle may detour to its nearest station, recharge to an operational maximum SoC $\overline{S}$, and return. The decision variable $x_{vi} \in \{0,1\}$ indicates whether vehicle $v$ charges after link $i$. SoC must remain within $[\underline{S}, \overline{S}]$ at every link, and station capacity $Z_c$ bounds the number of simultaneous users. The objective minimizes total detour time cost plus waiting cost across all vehicles and stations. The underlying mixed-integer program is intractable at scale (the T\"{u}rkiye instance involves over $10^8$ link--vehicle pairs), motivating a decomposition-based solution.
+The problem can be described as follows. Consider a fleet of EVs, each assigned a predetermined intercity route through the road network. A route consists of an ordered sequence of directed links, obtained from a static shortest-path computation between the vehicle's origin and destination. Along each route, a set of charging stations with known locations and finite plug counts is available. After traversing a link, a vehicle may choose to detour from the link's endpoint to the geographically nearest charging station, recharge its battery to a target State of Charge (SoC), and return to the same endpoint before continuing. The central scheduling question is: for each vehicle, after which links should it detour to charge? The answer must respect two families of constraints. First, the vehicle's SoC must remain within an operational window $[\underline{S}, \overline{S}]$ at every point along the route, where $\underline{S}$ is the minimum acceptable SoC (a safety buffer against deep discharge) and $\overline{S}$ is the maximum to which the battery is charged at each stop. Second, the number of vehicles simultaneously occupying plugs at any station must not exceed the station's capacity. The objective is to minimize the total cost incurred by all vehicles, comprising the time cost of round-trip detours to and from charging stations and the waiting cost when a vehicle arrives at a station whose plugs are all occupied.
 
-The framework proceeds as follows (\cref{fig:pipeline}):
+This joint scheduling problem can be formulated as a mixed-integer program (MIP), but the resulting model is computationally intractable at the scale of the T\"{u}rkiye application: with over two million vehicles, routes averaging hundreds of links each, and nearly ten thousand stations, the number of binary decision variables exceeds $10^8$ before capacity-coupling variables are introduced. However, the problem has a key structural property: if station capacity constraints are temporarily ignored, each vehicle's scheduling subproblem becomes independent and can be solved optimally in isolation. The capacity constraint is the sole source of inter-vehicle coupling. This decomposable structure motivates a three-stage solution pipeline (\cref{fig:pipeline}).
 
 \begin{figure}[!ht]
 \centering
@@ -103,37 +103,54 @@ The framework proceeds as follows (\cref{fig:pipeline}):
 \draw[arr] (p1.east)--(p2.west);
 \draw[arr] (p2.east)--(p3.west);
 \end{tikzpicture}
-\caption{Three-stage scheduling pipeline from~\cite{cokyasar2026electrification}.}
+\caption{Three-stage scheduling pipeline from~\cite{cokyasar2026electrification}. DP: Dynamic Programming, DAG: Directed Acyclic Graph.}
 \label{fig:pipeline}
 \end{figure}
 
-\textbf{Stage~1: Infeasibility Pruning.} A forward-pass reachability heuristic identifies vehicles whose routes contain charger coverage gaps that exceed the usable SoC window $\overline{S} - \underline{S}$. Such vehicles cannot complete their journey regardless of charging decisions and are excluded before the computationally expensive DP stage.
+\textbf{Stage~1: Infeasibility Pruning.} Before attempting to optimize charging schedules, the framework identifies vehicles that cannot possibly complete their journey without violating the minimum SoC constraint, regardless of how charging stops are arranged. This occurs when a vehicle's route contains a stretch of consecutive links between two charging opportunities whose cumulative energy consumption exceeds the usable SoC window $\overline{S} - \underline{S}$. A forward-pass reachability heuristic performs this check efficiently by simulating a greedy charging policy along each route: at every link with charger access, it evaluates whether the vehicle has enough remaining SoC to reach the next charger; if not, it charges immediately; if charging is impossible (the charger is unreachable even from the current SoC), the vehicle is declared infeasible and excluded. This pruning step avoids wasting computational resources on vehicles for which no feasible schedule exists.
 
-\textbf{Stage~2: DAG Shortest-Path Solver.} For each remaining vehicle, a directed acyclic graph is constructed over states $(i, s)$, where $i$ is the link index and $s$ is a discretized SoC bucket. Two arc types---\textit{travel} (consume energy, zero cost) and \textit{charge-then-travel} (detour to nearest charger, recharge to $\overline{S}$, incur round-trip time cost)---connect successive layers. A forward DP pass in $O(B \cdot N_v)$ time finds the minimum-cost charging sequence, where $B = \lceil(\overline{S} - \underline{S})/\delta\rceil$ is the number of SoC buckets. All vehicles are solved independently in parallel.
+\textbf{Stage~2: DAG Shortest-Path Solver.} For each surviving vehicle, the framework constructs a Directed Acyclic Graph (DAG) in which nodes represent states defined by a pair: the current link index $i$ along the route and a discretized SoC bucket $s$. The SoC axis is divided into buckets of width $\delta$ (e.g., 1 percentage point), creating $B = \lceil(\overline{S} - \underline{S})/\delta\rceil$ buckets. Two types of arcs connect nodes in consecutive layers. A \textit{travel} arc advances the vehicle to the next link while consuming energy proportional to link distance, at zero monetary cost. A \textit{charge-then-travel} arc represents a detour to the nearest charger, a full recharge to $\overline{S}$, a return to the route, and traversal of the next link, incurring a time-based detour cost. Because the link sequence imposes a strict topological order and SoC transitions are Markovian (the future depends only on the current state, not how the vehicle arrived there), the DAG shortest path from source to any terminal node can be found by a single forward Dynamic Programming (DP) pass in $O(B \cdot N_v)$ time per vehicle. All vehicles are solved independently in parallel across available processor cores.
 
-\textbf{Stage~3: Congestion Penalty Heuristic.} Individually optimal schedules may collectively violate station capacity. An iterative heuristic augments the DAG arc costs of congested stations by a penalty proportional to peak plug overflow, re-solves affected vehicles, and doubles the penalty when improvement stalls. A FIFO queue fallback guarantees every schedulable vehicle a capacity-feasible outcome.
+\textbf{Stage~3: Congestion Penalty Heuristic.} The DAG solver produces individually optimal schedules, but when these are combined across all vehicles, some stations may be assigned more simultaneous users than they have plugs. To resolve these capacity violations, an iterative heuristic augments the DAG arc costs of overloaded stations by a penalty proportional to each station's peak plug overflow (the maximum number of users above capacity across all time bins). Affected vehicles are then re-optimized with the updated costs, which steers them toward less congested alternatives. If improvement stalls, the penalty multiplier is doubled to intensify the pressure. After a fixed number of iterations or a time limit, any remaining capacity violations are resolved by a First-In, First-Out (FIFO) queue simulation that assigns explicit wait times to vehicles arriving at occupied stations. This fallback guarantees that every schedulable vehicle receives a capacity-feasible schedule with a quantified waiting cost.
 
 \subsection{T\"{u}rkiye-Specific Data Construction}\label{sec:data_construction}
 
 Applying the scheduling framework to T\"{u}rkiye required constructing three datasets from scratch: an intercity road network, a synthetic travel demand, and a georeferenced charging station registry. This subsection details each.
 
-\subsubsection{Road Network}
-
 The intercity highway network was extracted from OpenStreetMap (OSM) via the Geofabrik regional extract for T\"{u}rkiye. Road segments classified as \texttt{motorway}, \texttt{trunk}, or \texttt{primary} (including their respective \texttt{\_link} variants) were retained; lower-class roads were excluded to restrict the network to intercity-relevant facilities. Segment endpoints within 100 m of each other were merged using a KD-tree spatial snap to create intersection nodes. The largest connected component was retained to ensure full routability, yielding 31,286 nodes and 55,236 directed links. Free-flow speeds were assigned from OSM \texttt{maxspeed} tags where available, with highway-class defaults (motorway: 120 km/h, trunk: 100 km/h, primary: 80 km/h) applied otherwise. All coordinates were projected to EPSG:32636 (UTM Zone 36N). The network was stored as a POLARIS Supply database with proper SpatiaLite geometry infrastructure to enable static shortest-path routing via AequilibraE~\cite{auld_2016}.
-
-\subsubsection{Travel Demand}
 
 No publicly available intercity origin--destination trip table exists for T\"{u}rkiye. We constructed a synthetic demand of 3 million personal vehicle trips representing three days of intercity travel, calibrated to the aggregate volume of approximately one million intercity personal vehicle trips per day reported in KGM traffic statistics~\cite{kgm_traffic_2024}. Origin and destination locations were drawn from 100,000 population-weighted points distributed across all 929 administrative districts (\textit{il\c{c}e}), with district populations derived from T\"{U}\.{I}K census data~\cite{tuik_vehicles_2024} and allocated proportionally using GADM Level 2 boundaries. Trip start times were distributed across three days using an hourly profile that peaks during morning and evening periods. Origins were sampled proportionally to district population; destinations were drawn from a different district to ensure intercity character. All trips were routed through the network using AequilibraE's static shortest-path algorithm, producing link-level trajectories.
 
-\subsubsection{Charging Infrastructure}
 
-Station locations were obtained from the Sarj Gezgini registry~\cite{sarjgezgini_2025}, which aggregates EPDK-licensed public charging stations across T\"{u}rkiye. The dataset contains 9,641 stations operated by 170 networks (largest: ZES with 1,827 stations, E\c{s}arj with 745, Trugo with 649). Geographic coordinates (WGS 84) were projected to EPSG:32636 for consistency with the road network. Because the registry does not report individual plug counts per station, each station was assigned two plugs as a conservative default. Station--link proximity was computed using a BallTree index with Manhattan distance in projected coordinates.
+Station locations were obtained from the Sarj Gezgini registry~\cite{sarjgezgini_2025}, which aggregates EPDK-licensed public charging stations across T\"{u}rkiye. The dataset contains 9,641 stations operated by 170 networks (largest: ZES with 1,827 stations, E\c{s}arj with 745, Trugo with 649). Geographic coordinates (WGS 84) were projected to EPSG:32636 for consistency with the road network. Because the registry does not report individual plug counts per station, each station was assigned two plugs as a conservative default. Station-to-link proximity was computed using a BallTree index with Manhattan distance in projected coordinates.
+
+\subsection{Economic Evaluation Framework}\label{sec:economic_framework}
+
+Following \citet{cokyasar2026electrification}, economic outcomes are evaluated through a three-tier analysis computed at the individual path level and then aggregated. Let $D_v$ denote the original trip distance and $D_v^{\delta}$ the total detour distance for vehicle $v$. Detour cost $C_v^{\tau}$ and wait cost $C_v^{\omega}$ are outputs of the scheduling optimization, not assumed parameters.
+
+Tier~1 (Operational) compares ICE fuel cost against EV electricity, detour, and waiting costs:
+\begin{align}
+    C_{v}^{\gamma,1} &= \frac{D_v P^{\gamma} }{\eta^{\gamma}} \label{eq:t1ice} \\
+    C_{v}^{\xi,1} &= \frac{P^{\xi}(D_v + D_v^{\delta}) \bar{\rho}}{1000} + C_v^{\tau} + C_v^{\omega} \label{eq:t1ev}
+\end{align}
+
+Tier~2 (Total Cost of Ownership) adds per-trip vehicle purchase amortization and per-mile maintenance:
+\begin{align}
+    C_{v}^{\gamma,2} &= C_{v}^{\gamma,1} + \frac{V^{\gamma}}{ 52 FL} + M^{\gamma} D_v \label{eq:t2ice} \\
+    C_{v}^{\xi,2} &= C_{v}^{\xi,1} + \frac{\alpha V^{\gamma}}{ 52 FL} + M^{\xi} (D_v + D_v^{\delta}) \label{eq:t2ev}
+\end{align}
+
+Tier~3 (Infrastructure) adds amortized charging infrastructure capital and operating costs to the EV side:
+\begin{align}
+    C_{v}^{\xi,3} &= C_{v}^{\xi,2} + \frac{ Z^{\text{total}} (1/L_c + \mu)\kappa}{52FN^{\text{national}}} \label{eq:t3ev}
+\end{align}
+where $Z^{\text{total}}$ is the total number of plugs in the network and $N^{\text{national}}$ is the estimated national vehicle count, obtained by dividing the number of feasible paths by $F$ and scaling up by $1/\sigma$ (since the sample represents fraction $\sigma$ of national demand). The ICE cost at Tier~3 is unchanged ($C_{v}^{\gamma,3} = C_{v}^{\gamma,2}$). At each tier, we report both the mean per-path savings percentage and the share of individual paths for which the EV is cheaper than ICE.
 
 % =============================================================================
 \section{Numerical Experiments}\label{sec:results}
 % =============================================================================
 
-This section presents the experimental design, data sources, and results. \cref{sec:design} describes the travel demand, charging infrastructure, EV specification distributions, and the three-tier economic evaluation framework used throughout the experiments. \cref{sec:casestudy} reports a $2 \times 2$ case study comparing DCFC and L2 charging networks at two power levels using the full national trajectory dataset (representing 1\% of monthly travel). \cref{sec:sensitivity} presents a four-parameter sensitivity analysis conducted on a subsample to identify which EV technology and operational parameters most influence cost competitiveness.
+[This section will be written once simulation results are available. It will include the experimental design with T\"{u}rkiye-specific parameters, a case study using the 9,641-station EPDK network at 350~kW charger power, and a parametric sensitivity analysis.]
 
 \subsection{Experimental Design}\label{sec:design}
 
@@ -188,28 +205,6 @@ $\sigma$ & Demand sample fraction & 0.01 & -- \\
 \bottomrule
 \end{tabularx}
 \end{table*}
-
-\subsection{Economic Evaluation Framework}\label{sec:economic_framework}
-
-Following \citet{cokyasar2026electrification}, economic outcomes are evaluated through a three-tier analysis computed at the individual path level and then aggregated. Let $D_v$ denote the original trip distance and $D_v^{\delta}$ the total detour distance for vehicle $v$. Detour cost $C_v^{\tau}$ and wait cost $C_v^{\omega}$ are outputs of the scheduling optimization, not assumed parameters.
-
-Tier~1 (Operational) compares ICE fuel cost against EV electricity, detour, and waiting costs:
-\begin{align}
-    C_{v}^{\gamma,1} &= \frac{D_v P^{\gamma} }{\eta^{\gamma}} \label{eq:t1ice} \\
-    C_{v}^{\xi,1} &= \frac{P^{\xi}(D_v + D_v^{\delta}) \bar{\rho}}{1000} + C_v^{\tau} + C_v^{\omega} \label{eq:t1ev}
-\end{align}
-
-Tier~2 (TCO) adds per-trip vehicle purchase amortization and per-mile maintenance:
-\begin{align}
-    C_{v}^{\gamma,2} &= C_{v}^{\gamma,1} + \frac{V^{\gamma}}{ 52 FL} + M^{\gamma} D_v \label{eq:t2ice} \\
-    C_{v}^{\xi,2} &= C_{v}^{\xi,1} + \frac{\alpha V^{\gamma}}{ 52 FL} + M^{\xi} (D_v + D_v^{\delta}) \label{eq:t2ev}
-\end{align}
-
-Tier~3 (Infrastructure) adds amortized charging infrastructure capital and operating costs to the EV side:
-\begin{align}
-    C_{v}^{\xi,3} &= C_{v}^{\xi,2} + \frac{ Z^{\text{total}} (1/L_c + \mu)\kappa}{52FN^{\text{national}}} \label{eq:t3ev}
-\end{align}
-where $Z^{\text{total}}$ is the total number of plugs in the network, and $N^{\text{national}}$ is the estimated national vehicle count, obtained by dividing the number of feasible paths by $F$ and scaling up by $1/\sigma$ (since the sample represents fraction $\sigma$ of national demand). The ICE cost at Tier~3 is unchanged ($C_{v}^{\gamma,3} = C_{v}^{\gamma,2}$). At each tier, we report both the mean per-path savings percentage and the share of individual paths for which the EV is cheaper than ICE.
 
 \begin{figure*}[!htb]
 \centering
