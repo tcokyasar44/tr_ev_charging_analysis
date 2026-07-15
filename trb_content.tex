@@ -122,7 +122,7 @@ The intercity highway network was extracted from OpenStreetMap (OSM) via the Geo
 No publicly available intercity origin--destination trip table exists for T\"{u}rkiye. We constructed a synthetic demand of 3 million personal vehicle trips representing three days of intercity travel, calibrated to the aggregate volume of approximately one million intercity personal vehicle trips per day reported in KGM traffic statistics~\cite{kgm_traffic_2024}. Origin and destination locations were drawn from 100,000 population-weighted points distributed across all 929 administrative districts (\textit{il\c{c}e}), with district populations derived from T\"{U}\.{I}K census data~\cite{tuik_vehicles_2024} and allocated proportionally using GADM Level 2 boundaries. Trip start times were distributed across three days using an hourly profile that peaks during morning and evening periods. Origins were sampled proportionally to district population; destinations were drawn from a different district to ensure intercity character. All trips were routed through the network using AequilibraE's static shortest-path algorithm, producing link-level trajectories.
 
 
-Station locations were obtained from the Sarj Gezgini registry~\cite{sarjgezgini_2025}, which aggregates EPDK-licensed public charging stations across T\"{u}rkiye. The dataset contains 9,641 stations operated by 170 networks (largest: ZES with 1,827 stations, E\c{s}arj with 745, Trugo with 649). Geographic coordinates (WGS 84) were projected to EPSG:32636 for consistency with the road network. Because the registry does not report individual plug counts per station, each station was assigned two plugs as a conservative default. Station-to-link proximity was computed using a BallTree index with Manhattan distance in projected coordinates.
+Station locations were obtained from the Sarj Gezgini registry~\cite{sarjgezgini_2025}, which aggregates EPDK-licensed public charging stations across T\"{u}rkiye. The dataset contains 9,641 stations operated by 170 networks (largest: ZES with 1,827 stations, E\c{s}arj with 745, Trugo with 649). Geographic coordinates (WGS 84) were projected to EPSG:32636 for consistency with the road network. Because the registry does not report individual plug counts per station, each station was assigned 50 plugs in the baseline scenario (with a 5-plug variant used to assess congestion sensitivity). Station-to-link proximity was computed using a BallTree index with Manhattan distance in projected coordinates.
 
 \subsection{Economic Evaluation Framework}\label{sec:economic_framework}
 
@@ -202,27 +202,16 @@ $\sigma$ & Demand sample fraction & 1.0 & -- \\
 \end{tabularx}
 \end{table*}
 
+\Cref{fig:charger_map} shows the geographic distribution of the 9,641 charging stations alongside the intercity highway network. Station density is highest along the Istanbul--Ankara--Izmir triangle and the Mediterranean coastal corridor, with sparser coverage in the eastern provinces. This uneven spatial distribution, which reflects the market-driven rollout of charging infrastructure around major metropolitan demand centers, is a key factor in the feasibility outcomes reported in the case study below.
+
 \begin{figure*}[!htb]
 \centering
-\begin{subfigure}[t]{0.48\textwidth}
-    \centering
-    \includegraphics[width=\textwidth]{dcfc_charger_map.png}
-    \caption{DCFC network (14,260 stations, 68,362 plugs)}
-    \label{fig:charger_map_dcfc}
-\end{subfigure}
-\hfill
-\begin{subfigure}[t]{0.48\textwidth}
-    \centering
-    \includegraphics[width=\textwidth]{l2_charger_map.png}
-    \caption{L2 network (64,477 stations, 169,385 plugs)}
-    \label{fig:charger_map_l2}
-\end{subfigure}
-
-\vspace{4pt}
-\includegraphics[width=.6\textwidth]{charger_map_legend.png}
-\caption{Geographic distribution of charging stations across the contiguous United States. Marker size indicates plug count at each station.}
-\label{fig:charger_maps}
+\includegraphics[width=0.85\textwidth]{turkiye_charger_map.png}
+\caption{Geographic distribution of 9,641 EPDK-licensed charging stations (blue triangles) and the intercity highway network (55,236 links, gray lines) across T\"{u}rkiye.}
+\label{fig:charger_map}
 \end{figure*}
+
+\subsection{Case Study}\label{sec:casestudy}
 
 \Cref{fig:charger_map_dcfc} and \Cref{fig:charger_map_l2} show the geographic distribution of the two networks, and \cref{tab:casestudy} reports the key operational and economic metrics across the four scenarios. The number of paths entering the scheduler differs between the two networks (2,210,573 for DCFC vs.\ 2,169,999 for L2) because the preprocessing filters depend on charger geography: the nearest-charger map, need to charging filter (which removes vehicles that can complete their trip without charging), and the long-link pruning step all use charger locations as input, so different networks produce slightly different filtered path sets from the same underlying demand. Despite this difference, feasibility rates are nearly identical at approximately 29\% across all scenarios. This invariance is expected: feasibility is determined by whether a vehicle's route passes close enough to \emph{any} charger to maintain SoC above $\underline{S}$, which depends on network geography and vehicle specifications but not on charger power. The slight difference between DCFC (644,771 feasible paths) and L2 (633,692) reflects the different spatial coverage of the two networks rather than any power-related effect.
 
