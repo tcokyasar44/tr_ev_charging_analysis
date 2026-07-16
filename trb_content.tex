@@ -265,57 +265,15 @@ Three conclusions emerge from the case study, and it is worth to highlight that 
 
 To identify which EV technology and operational parameters most influence the viability of intercity electric travel in T\"{u}rkiye, four univariate parameter sweeps are conducted. Each sweep varies one parameter across four or five levels while holding all others at their baseline values (\cref{tab:params}). A 1\% electrification rate is applied, randomly sampling 1\% of vehicles from the pre-computed trajectory set, with 10 replications per parameter level using distinct random seeds to capture stochastic variability. The four parameters and their levels are: EV range ($\underline{R}$--$\overline{R}$, km) at (150, 250), (250, 400), (400, 550), (550, 700), and (700, 900) (5 levels, 50 runs); discharge rate upper bound ($\overline{\rho}$, Wh/km) at 160, 190, 220, and 250 (4 levels, 40 runs); charger power ($W_c$, kW) at 50, 100, 250, 350, and 500 (5 levels, 50 runs); and operational SoC bounds ($\underline{S}$--$\overline{S}$, \%) at (5, 100), (10, 100), (10, 80), (20, 100), and (20, 80) (5 levels, 50 runs), yielding 190 individual runs in total.
 
-\Cref{tab:sensitivity} reports the mean and standard deviation across replications for each parameter level. To facilitate comparison across parameters, we measure sensitivity as the total range of Tier~2 mean savings across the tested levels, since Tier~2 captures the full cost-of-ownership picture most relevant for policy and consumer decisions.
+The sensitivity analysis focuses on Tier~1 and Tier~2 outcomes. Tier~3 (Infrastructure) is excluded from the sensitivity sweeps because the per-trip infrastructure amortization term in \eqref{eq:t3ev} depends on the total plug count and estimated national vehicle count, which are fixed inputs unaffected by the four swept parameters. Tier~3 results are reported in the case study (\cref{sec:casestudy}), where charger power and plug count vary across scenarios.
 
-\begin{table*}[!htb]
-\centering
-\footnotesize
-\caption{Sensitivity analysis results across four parameter sweeps for T\"{u}rkiye. Values are mean $\pm$ standard deviation over 10 replications. Baseline values are marked with $^*$.}\label{tab:sensitivity}
-\begin{tabularx}{\textwidth}{l >{\centering\arraybackslash}X >{\centering\arraybackslash}X >{\centering\arraybackslash}X >{\centering\arraybackslash}X >{\centering\arraybackslash}X >{\centering\arraybackslash}X}
-\toprule
-\textbf{Parameter level} & \textbf{Feasibility (\%)} & \textbf{Tier~1 (\%)} & \textbf{Tier~2 (\%)} & \textbf{Avg.\ stops} & \textbf{Avg.\ detour (min)} & \textbf{+Dist.\ (\%)} \\
-\midrule
-\multicolumn{7}{l}{\textit{EV range (km)}} \\
-150--250      & 100.0$\pm$0.0 & $+$26.2$\pm$0.0 & $+$10.2$\pm$0.0  & 7.6$\pm$0.0 & 5.6$\pm$0.0 & 1.1$\pm$0.0 \\
-250--400      & 100.0$\pm$0.0 & $+$26.5$\pm$0.0 & $+$11.8$\pm$0.0  & 6.4$\pm$0.0 & 3.9$\pm$0.0 & 0.7$\pm$0.0 \\
-400--550$^*$  & 100.0$\pm$0.0 & $+$26.6$\pm$0.0 & $+$13.2$\pm$0.0  & 6.0$\pm$0.0 & 3.4$\pm$0.0 & 0.6$\pm$0.0 \\
-550--700      & 100.0$\pm$0.0 & $+$26.7$\pm$0.0 & $+$14.7$\pm$0.0  & 6.2$\pm$0.0 & 3.5$\pm$0.0 & 0.5$\pm$0.0 \\
-700--900      & 100.0$\pm$0.0 & $+$26.7$\pm$0.0 & $+$16.1$\pm$0.0  & 6.6$\pm$0.0 & 3.7$\pm$0.0 & 0.5$\pm$0.0 \\
-\midrule
-\multicolumn{7}{l}{\textit{Discharge rate upper bound (Wh/km)}} \\
-160           & 100.0$\pm$0.0 & $+$43.1$\pm$0.0 & $+$23.7$\pm$0.1  & 6.2$\pm$0.0 & 3.6$\pm$0.0 & 0.6$\pm$0.0 \\
-190           & 100.0$\pm$0.0 & $+$37.6$\pm$0.0 & $+$19.9$\pm$0.1  & 6.2$\pm$0.0 & 3.6$\pm$0.0 & 0.6$\pm$0.0 \\
-220           & 100.0$\pm$0.0 & $+$32.1$\pm$0.0 & $+$16.2$\pm$0.0  & 6.2$\pm$0.0 & 3.7$\pm$0.0 & 0.6$\pm$0.0 \\
-250$^*$       & 100.0$\pm$0.0 & $+$26.6$\pm$0.0 & $+$12.5$\pm$0.0  & 6.3$\pm$0.0 & 3.7$\pm$0.0 & 0.6$\pm$0.0 \\
-\midrule
-\multicolumn{7}{l}{\textit{Charger power (kW)}} \\
-\phantom{0}50 & 100.0$\pm$0.0 & $+$26.5$\pm$0.0 & $+$12.5$\pm$0.0  & 6.2$\pm$0.0 & 4.0$\pm$0.0 & 0.7$\pm$0.0 \\
-100           & 100.0$\pm$0.0 & $+$26.5$\pm$0.0 & $+$12.5$\pm$0.0  & 6.2$\pm$0.0 & 3.8$\pm$0.0 & 0.7$\pm$0.0 \\
-250           & 100.0$\pm$0.0 & $+$26.6$\pm$0.0 & $+$12.5$\pm$0.0  & 6.3$\pm$0.0 & 3.7$\pm$0.0 & 0.6$\pm$0.0 \\
-350$^*$       & 100.0$\pm$0.0 & $+$26.6$\pm$0.0 & $+$12.5$\pm$0.0  & 6.2$\pm$0.0 & 3.7$\pm$0.0 & 0.6$\pm$0.0 \\
-500           & 100.0$\pm$0.0 & $+$26.6$\pm$0.0 & $+$12.5$\pm$0.0  & 6.2$\pm$0.0 & 3.7$\pm$0.0 & 0.6$\pm$0.0 \\
-\midrule
-\multicolumn{7}{l}{\textit{Operational SoC bounds (\%)}} \\
-\phantom{0}5--100 & 100.0$\pm$0.0 & $+$26.6$\pm$0.0 & $+$12.7$\pm$0.0 & 6.0$\pm$0.0 & 3.4$\pm$0.0 & 0.6$\pm$0.0 \\
-10--100$^*$       & 100.0$\pm$0.0 & $+$26.6$\pm$0.0 & $+$12.5$\pm$0.1 & 6.2$\pm$0.0 & 3.7$\pm$0.0 & 0.6$\pm$0.0 \\
-20--100           & 100.0$\pm$0.0 & $+$26.4$\pm$0.0 & $+$12.0$\pm$0.1 & 7.0$\pm$0.0 & 4.4$\pm$0.0 & 0.8$\pm$0.0 \\
-10--80            & \phantom{00}0.3$\pm$0.0 & $+$26.0$\pm$0.0 & $+$10.9$\pm$1.0 & 9.3$\pm$0.0 & 6.7$\pm$0.0 & 1.2$\pm$0.0 \\
-20--80            & \phantom{00}0.3$\pm$0.0 & $+$25.9$\pm$0.1 & $+$10.7$\pm$1.3 & 9.7$\pm$0.0 & 7.2$\pm$0.0 & 1.3$\pm$0.0 \\
-\bottomrule
-\end{tabularx}
-\end{table*}
+The discharge rate upper bound produces the largest economic sensitivity. Its Tier~2 span is 11.2 percentage points, ranging from $+12.5$\% at 250~Wh/km (baseline) to $+23.7$\% at 160~Wh/km, and its Tier~1 span reaches 16.5 percentage points (\cref{fig:sensitivity_summary,fig:sensitivity_tier2}). Lower discharge rates reduce electricity consumption per kilometer, directly cutting energy costs without altering feasibility, which remains at 100\% across all levels. This effect is amplified in T\"{u}rkiye by the high public charger electricity price (13~TL/kWh), making energy efficiency the most impactful lever for improving intercity EV cost competitiveness. The charging operations metrics (\cref{fig:sensitivity_ops}) confirm that discharge rate has no effect on the number of stops, detour time, or additional distance, reinforcing that its impact is purely economic rather than operational.
 
-Four key observations emerge from the results.
+EV range produces the second-largest Tier~2 span at 5.9 percentage points, from $+10.2$\% (150--250~km) to $+16.1$\% (700--900~km). Under the baseline SoC operating window of 10--100\%, all range levels achieve 100\% feasibility, meaning that even short-range EVs can complete intercity trips through more frequent charging stops. The Tier~1 operational savings are nearly flat ($+26.2$\% to $+26.7$\%), indicating that range primarily affects the per-trip vehicle cost component through TCO amortization rather than energy or time consumption. Short-range vehicles require slightly more stops (7.6 vs.\ 6.0) and longer detours (5.6 vs.\ 3.4~min), but these operational differences are modest (\cref{fig:sensitivity_ops}).
 
-\textbf{Discharge rate is the dominant economic lever.} The discharge rate upper bound produces the largest Tier~2 span at 11.2 percentage points, ranging from $+12.5$\% at 250~Wh/km (baseline) to $+23.7$\% at 160~Wh/km, and the largest Tier~1 span at 16.5 percentage points. Crucially, discharge rate affects economics without changing feasibility (100\% across all levels): lower discharge rates reduce electricity consumption per kilometer, directly cutting Tier~1 energy costs. This finding is particularly significant for T\"{u}rkiye, where the high electricity price at public chargers (13~TL/kWh) amplifies the economic impact of energy efficiency. For policymakers, this suggests that incentivizing energy-efficient EV models and improving aerodynamics will yield larger cost competitiveness gains than infrastructure upgrades.
+The operational SoC bounds parameter reveals the most dramatic structural effect. When $\overline{S} = 100$\%, feasibility remains at 100\% regardless of the lower bound; when $\overline{S}$ is capped at 80\%, feasibility collapses to just 0.3\%. This cliff occurs because T\"{u}rkiye's highway network contains stretches between consecutive charger opportunities whose cumulative energy consumption exceeds the usable SoC window under the 80\% cap but falls within the wider window when $\overline{S} = 100$\%. The Tier~2 range across SoC bound levels is modest (2.0~pp) because the metric is computed only over feasible paths, which are nearly identical in the three wide-window scenarios and negligible in the two narrow-window scenarios. The practical implication is that T\"{u}rkiye's current charging network can support intercity EV travel for vehicles that utilize their full battery capacity but is inadequate for vehicles constrained to a conventional 20--80\% operating range, highlighting the need either for denser charger deployment in underserved corridors or for battery management systems that safely extend the usable SoC window.
 
-\textbf{EV range affects TCO but not feasibility.} EV range produces the second-largest Tier~2 span at 5.9 percentage points, from $+10.2$\% (150--250~km) to $+16.1$\% (700--900~km). Under the baseline SoC operating window of 10--100\%, all range levels achieve 100\% feasibility. Even short-range EVs can complete intercity trips with more frequent charging stops, incurring higher detour and vehicle amortization costs but remaining feasible. The Tier~1 operational savings are nearly flat ($+26.2$\% to $+26.7$\%), indicating that range primarily affects the per-trip vehicle cost component (via TCO amortization) rather than energy or time consumption.
-
-\textbf{SoC bounds control a binary feasibility cliff.} The operational SoC bounds parameter reveals the most dramatic effect: when $\overline{S} = 100$\%, feasibility remains at 100\% regardless of the lower bound; when $\overline{S}$ is capped at 80\%, feasibility collapses to just 0.3\%. This cliff occurs because T\"{u}rkiye's highway network contains stretches between consecutive charger opportunities whose cumulative energy consumption exceeds the usable SoC window under the 80\% cap but falls within the wider window when $\overline{S} = 100$\%. The Tier~2 range across SoC bound levels is modest (2.0~pp) only because the metric is computed over feasible paths, which are nearly identical in the three wide-window scenarios and nearly nonexistent in the two narrow-window scenarios. The practical implication is significant: T\"{u}rkiye's current charging network can support intercity EV travel for vehicles that utilize their full battery capacity, but is inadequate for vehicles constrained to a conventional 20--80\% operating range, highlighting the need either for denser charger deployment or for battery management systems that safely extend the usable SoC window.
-
-\textbf{Charger power has negligible impact at low adoption.} Charger power produces essentially zero Tier~2 sensitivity (0.0~pp), with savings stable at $+12.5$\% across all power levels from 50 to 500~kW. Charging time per stop varies substantially, from 27.6~min at 50~kW to 2.8~min at 500~kW (\cref{fig:sensitivity_charging}), but at a 1\% electrification rate, congestion is nonexistent and charging duration does not translate into queue-based wait costs. Charger power is therefore a capacity parameter whose importance scales with the EV adoption rate rather than an efficiency parameter that affects individual trip economics.
-
-\Cref{fig:sensitivity_summary} summarizes the sensitivity ranges across all four parameters for Tier~1 and Tier~2. \Cref{fig:sensitivity_panels} provides a disaggregated view of Tier~2 savings by parameter level, and \cref{fig:sensitivity_charging} illustrates the charging operations (average stops and charge time per stop) across parameter sweeps.
+Charger power produces essentially zero Tier~2 sensitivity (0.0~pp), with savings stable at $+12.5$\% across all power levels from 50 to 500~kW. Charging time per stop varies substantially, from 27.6~min at 50~kW to 2.8~min at 500~kW (\cref{fig:sensitivity_ops}), but at a 1\% electrification rate congestion is nonexistent and charging duration does not translate into queue-based wait costs. Charger power is therefore a capacity parameter whose importance scales with the EV adoption rate rather than an efficiency parameter affecting individual trip economics.
 
 \begin{figure}[!ht]
 \centering
@@ -326,16 +284,62 @@ Four key observations emerge from the results.
 
 \begin{figure*}[!htb]
 \centering
-\includegraphics[width=0.95\textwidth]{sensitivity_tier2_panels_tr.png}
+\begin{subfigure}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{sensitivity_tier2_range_tr.png}
+    \caption{EV range}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{sensitivity_tier2_discharge_tr.png}
+    \caption{Discharge rate}
+\end{subfigure}
+
+\vspace{6pt}
+\begin{subfigure}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{sensitivity_tier2_power_tr.png}
+    \caption{Charger power}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{sensitivity_tier2_soc_tr.png}
+    \caption{SoC bounds}
+\end{subfigure}
 \caption{Tier~2 (TCO) mean savings by parameter level across the four sensitivity sweeps. Error bars show $\pm$1 standard deviation over 10 replications.}
-\label{fig:sensitivity_panels}
+\label{fig:sensitivity_tier2}
 \end{figure*}
 
 \begin{figure*}[!htb]
 \centering
-\includegraphics[width=0.95\textwidth]{sensitivity_charging_ops_tr.png}
-\caption{Charging operations across sensitivity sweeps. Left: average number of charging stops per feasible path. Right: average charging duration per stop (minutes).}
-\label{fig:sensitivity_charging}
+\begin{subfigure}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{sensitivity_stops_tr.png}
+    \caption{Average charging stops per path}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{sensitivity_charge_time_tr.png}
+    \caption{Average charge time per stop}
+\end{subfigure}
+
+\vspace{6pt}
+\begin{subfigure}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{sensitivity_detour_time_tr.png}
+    \caption{Average detour time per path}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.48\textwidth}
+    \centering
+    \includegraphics[width=\textwidth]{sensitivity_add_dist_tr.png}
+    \caption{Additional travel distance}
+\end{subfigure}
+\caption{Charging operations across sensitivity sweeps. Each line represents one parameter sweep; markers show mean values over 10 replications with $\pm$1 standard deviation error bars.}
+\label{fig:sensitivity_ops}
 \end{figure*}
 
 % =============================================================================
