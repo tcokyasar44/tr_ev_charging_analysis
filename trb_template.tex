@@ -38,6 +38,26 @@
 \crefname{algorithm}{Algorithm}{Algorithms}
 \newcommand{\secref}[1]{\hyperref[#1]{\nameref*{#1}~Section}}
 
+\usepackage{xstring}
+
+% Save the original cleveref commands
+\let\oldCref\Cref
+\let\oldcref\cref
+
+% Redefine \Cref to check for "sec:" prefix
+\renewcommand{\Cref}[1]{%
+    \IfBeginWith{#1}{sec:}%
+        {\hyperref[#1]{\nameref*{#1}~Section}}%
+        {\oldCref{#1}}%
+}
+
+% Redefine \cref for lowercase standard
+\renewcommand{\cref}[1]{%
+    \IfBeginWith{#1}{sec:}%
+        {\hyperref[#1]{\nameref*{#1}~section}}%
+        {\oldcref{#1}}%
+}
+
 \title{Is T\"{u}rkiye Ready for Intercity Electric Travel? A Countrywide Charging Scheduling and Cost Analysis}
 
 \author{%
