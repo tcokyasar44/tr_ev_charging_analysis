@@ -1,7 +1,7 @@
 \NeedsTeXFormat{LaTeX2e}
 \ProvidesClass{trbunofficial}[2017/06/10 TRB latex template]
 
-\LoadClass[titlepage, oneside, 10pt]{article}
+\LoadClass[titlepage, oneside, 12pt]{article}
 
 \RequirePackage[tiny, rm, pagestyles]{titlesec}
 \RequirePackage{enumitem}
@@ -42,11 +42,11 @@
 
 \renewcommand*{\refname}{\uppercase{References}}
 \titleformat{\section}{\bfseries}{}{0pt}{\uppercase}
-\titlespacing*{\section}{0pt}{10pt}{*0}
+\titlespacing*{\section}{0pt}{12pt}{*0}
 \titleformat{\subsection}{\bfseries}{}{0pt}{}
-\titlespacing*{\subsection}{0pt}{10pt}{*0}
+\titlespacing*{\subsection}{0pt}{12pt}{*0}
 \titleformat{\subsubsection}{\itshape}{}{0pt}{}
-\titlespacing*{\subsubsection}{0pt}{10pt}{*0}
+\titlespacing*{\subsubsection}{0pt}{12pt}{*0}
 
 \setlength{\mathindent}{0in}
 \g@addto@macro\normalsize{%
