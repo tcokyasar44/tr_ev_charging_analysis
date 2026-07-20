@@ -213,53 +213,54 @@ $\sigma$ & Demand sample fraction & 1.0 & -- \\
 
 \subsection{Case Study}\label{sec:casestudy}
 
-\Cref{fig:charger_map_dcfc} and \Cref{fig:charger_map_l2} show the geographic distribution of the two networks, and \cref{tab:casestudy} reports the key operational and economic metrics across the four scenarios. The number of paths entering the scheduler differs between the two networks (2,210,573 for DCFC vs.\ 2,169,999 for L2) because the preprocessing filters depend on charger geography: the nearest-charger map, need to charging filter (which removes vehicles that can complete their trip without charging), and the long-link pruning step all use charger locations as input, so different networks produce slightly different filtered path sets from the same underlying demand. Despite this difference, feasibility rates are nearly identical at approximately 29\% across all scenarios. This invariance is expected: feasibility is determined by whether a vehicle's route passes close enough to \emph{any} charger to maintain SoC above $\underline{S}$, which depends on network geography and vehicle specifications but not on charger power. The slight difference between DCFC (644,771 feasible paths) and L2 (633,692) reflects the different spatial coverage of the two networks rather than any power-related effect.
+The case study evaluates the interaction between charger power and station capacity by crossing four power levels (5, 22, 50, and 350~kW) with two plug-count configurations: 50 plugs per station (482,050 total plugs, representing an infrastructure-abundant scenario) and 5 plugs per station (48,205 total plugs, representing a capacity-constrained scenario). All eight scenarios use the same charging network of 9,641 EPDK-licensed stations, the same 3 million synthetic intercity trips, and the full 100\% electrification rate. \Cref{tab:casestudy} reports the key operational and economic metrics. Before discussing the results, it is important to note that several baseline modeling choices distinguish this analysis from the U.S.\ application in \citet{cokyasar2026electrification}: T\"{u}rkiye uses a wider SoC operating window (10--100\% vs.\ 20--80\%), a different charging network (9,641 EPDK stations vs.\ 14,260 AFDC DCFC stations), T\"{u}rkiye-specific fuel and electricity prices (50~TL/liter gasoline, 13~TL/kWh electricity), and a higher EV-to-ICE purchase price ratio (1.4 vs.\ 1.2). These differences affect both feasibility rates and economic outcomes, and direct numerical comparisons between the two studies should be interpreted with this context in mind.
 
-The operational differences, however, are dramatic. Average charging time per stop ranges from 4.1~minutes at 350~kW DCFC to 292~minutes (nearly 5 hours) at 5~kW L2, a 71-fold difference. Average detour time per path also varies substantially, from 31.8~minutes (DCFC 350~kW) to 57.4~minutes (L2 5~kW), reflecting the fact that L2 stations are predominantly located in urban areas (residential, workplace) rather than along highway corridors, resulting in longer detours for intercity travelers despite the L2 network having 4.5$\times$ more stations and 2.5$\times$ more plugs. Additional travel distance ranges from 4.2\% (DCFC 350~kW) to 7.7\% (L2 5~kW) of the original ICE trip distance.
+All eight scenarios achieve 100\% feasibility, with all 2,161,247 paths that enter the scheduler completing successfully. This contrasts with the approximately 29\% feasibility rate observed in the U.S.\ analysis, a difference attributable primarily to the wider SoC operating window (10--100\%) rather than to differences in network geography. As demonstrated in the sensitivity analysis (\cref{sec:sensitivity}), capping $\overline{S}$ at 80\% collapses feasibility to 0.3\% in the T\"{u}rkiye network, confirming that the full-capacity operating window is the primary enabler of universal feasibility.
+
+Charging operations vary substantially across scenarios. Average charge time per stop ranges from 4.1~minutes at 350~kW to 287--288~minutes at 5~kW, a 70-fold difference that directly impacts vehicle throughput at each station. Average detour time per path ranges from 9.9~minutes (350~kW, 50~plugs) to 23.7~minutes (5~kW, 5~plugs), reflecting the optimizer's preference for more distant but less congested stations when nearby stations have limited capacity. Additional travel distance ranges from 1.7\% to 4.1\% of the original trip distance. The number of charging stops is remarkably stable at approximately 6.1 across all scenarios, indicating that the optimizer selects a similar number of stops regardless of power or capacity, adjusting only the duration and spatial distribution of each stop.
+
+The three-tier economic analysis reveals that EVs are operationally cheaper than ICE vehicles in T\"{u}rkiye under all eight scenarios. Tier~1 (operational) savings range from $+23.2$\% (5~kW, 5~plugs) to $+25.5$\% (350~kW, 50~plugs), and 100\% of individual paths favor EVs at Tier~1 in every scenario. This finding contrasts sharply with the U.S.\ analysis, where Tier~1 savings were negative ($-6.1$\% to $-46.3$\%) across all scenarios. The reversal is driven by T\"{u}rkiye's favorable fuel-to-electricity price ratio: gasoline at 50~TL/liter with 14~km/L efficiency costs approximately 3.57~TL/km, while electricity at 13~TL/kWh with an average discharge rate of 200~Wh/km costs approximately 2.60~TL/km, a 27\% energy cost advantage that absorbs the detour and waiting time overhead.
+
+Tier~2 (TCO) savings narrow to $+10.0$\% to $+11.7$\% as the higher EV purchase price (1.4$\times$ ICE) partially offsets the operational advantage. Approximately 96--97\% of individual paths remain EV-favorable at Tier~2, indicating broad cost competitiveness across trip lengths and geographies.
+
+The plug-count dimension reveals its impact at Tier~3 (Infrastructure), where the total number of plugs determines the amortized infrastructure cost per trip. With 50 plugs per station (482,050 total), the per-trip infrastructure burden overwhelms the Tier~2 advantage, pushing Tier~3 savings to $-15.0$\% to $-15.8$\%. With 5 plugs per station (48,205 total), the infrastructure cost is 10$\times$ lower, and Tier~3 savings remain positive at $+7.4$\% to $+8.0$\%. This Tier~3 sign reversal highlights a fundamental infrastructure planning tradeoff: deploying more plugs per station improves throughput and reduces congestion but increases the per-trip infrastructure burden that must be recovered through charging fees or public subsidy.
+
+\Cref{fig:detour_overhead} illustrates the relationship between trip distance and charging detour overhead for the 350~kW, 50-plug scenario. Short trips (under 100~km) incur proportionally higher detour overhead because a single charging stop represents a larger fraction of the total distance. As trip distance increases, the detour percentage declines and stabilizes, reflecting the amortization of a roughly fixed number of detour events over a longer route. The scatter also reveals substantial trip-level heterogeneity: at any given distance, detour overhead varies by a factor of 5--10 depending on the specific origin-destination pair and the proximity of the route to charging stations.
 
 \begin{table*}[!htb]
 \centering
 \footnotesize
-\caption{Case study results: DCFC vs.\ L2 charging networks at two power levels.}\label{tab:casestudy}
-\begin{tabularx}{\textwidth}{l *{4}{>{\centering\arraybackslash}X}}
+\caption{Case study results: four charger power levels at two plug-count configurations across T\"{u}rkiye's 9,641-station EPDK network. All scenarios achieve 100\% feasibility (2,161,247 feasible paths).}\label{tab:casestudy}
+\begin{tabularx}{\textwidth}{l *{4}{>{\centering\arraybackslash}X} | *{4}{>{\centering\arraybackslash}X}}
 \toprule
-& \multicolumn{2}{c}{\textbf{DCFC Network}} & \multicolumn{2}{c}{\textbf{L2 Network}} \\
-\cmidrule(lr){2-3} \cmidrule(lr){4-5}
-\textbf{Metric} & \textbf{50 kW} & \textbf{350 kW} & \textbf{5 kW} & \textbf{15 kW} \\
+& \multicolumn{4}{c|}{\textbf{50 plugs/station (482,050 total)}} & \multicolumn{4}{c}{\textbf{5 plugs/station (48,205 total)}} \\
+\cmidrule(lr){2-5} \cmidrule(lr){6-9}
+\textbf{Metric} & \textbf{5 kW} & \textbf{22 kW} & \textbf{50 kW} & \textbf{350 kW} & \textbf{5 kW} & \textbf{22 kW} & \textbf{50 kW} & \textbf{350 kW} \\
 \midrule
-\multicolumn{5}{l}{\textit{Infrastructure}} \\
-Stations & 14,260 & 14,260 & 64,477 & 64,477 \\
-Total plugs & 68,362 & 68,362 & 169,385 & 169,385 \\
+\multicolumn{9}{l}{\textit{Charging operations}} \\
+Avg.\ charge time/stop (min) & 287.3 & 65.0 & 28.6 & 4.1 & 288.1 & 65.6 & 28.8 & 4.1 \\
+Avg.\ detour time/path (min) & 17.1 & 13.1 & 11.8 & 9.9 & 23.7 & 22.1 & 21.3 & 18.7 \\
+Avg.\ stops/path & 6.1 & 6.1 & 6.1 & 6.1 & 6.2 & 6.1 & 6.1 & 6.1 \\
+Additional distance (\%) & 3.0 & 2.3 & 2.0 & 1.7 & 4.1 & 3.8 & 3.7 & 3.2 \\
 \midrule
-\multicolumn{5}{l}{\textit{Feasibility}} \\
-Paths into scheduler & 2,210,573 & 2,210,573 & 2,169,999 & 2,169,999 \\
-Feasible paths & 644,771 & 644,771 & 633,692 & 633,692 \\
-Feasibility rate (\%) & 29.2 & 29.2 & 29.2 & 29.2 \\
+\multicolumn{9}{l}{\textit{Economic analysis (mean savings \%, positive = EV cheaper)}} \\
+Tier~1 (Operational) & $+$24.4 & $+$25.0 & $+$25.2 & $+$25.5 & $+$23.2 & $+$23.5 & $+$23.6 & $+$24.1 \\
+Tier~2 (TCO) & $+$10.9 & $+$11.3 & $+$11.5 & $+$11.7 & $+$10.0 & $+$10.3 & $+$10.4 & $+$10.7 \\
+Tier~3 (Infrastructure) & $-$15.8 & $-$15.4 & $-$15.2 & $-$15.0 & $+$7.4 & $+$7.6 & $+$7.7 & $+$8.0 \\
 \midrule
-\multicolumn{5}{l}{\textit{Charging operations}} \\
-Avg.\ charge time per stop (min) & 29.0 & 4.1 & 292.3 & 96.7 \\
-Avg.\ detour time per path (min) & 39.2 & 31.8 & 57.4 & 46.0 \\
-Additional travel distance (\%) & 5.2 & 4.2 & 7.7 & 6.2 \\
-\midrule
-\multicolumn{5}{l}{\textit{Economic analysis}} \\
-Tier~1 mean savings (\%) & $-17.6$ & $-6.1$ & $-46.3$ & $-28.5$ \\
-Tier~1 paths with EV cheaper (\%) & 27.8 & 44.5 & 17.8 & 26.0 \\
-Tier~2 mean savings (\%) & $+4.5$ & $+10.5$ & $-10.6$ & $-1.3$ \\
-Tier~2 paths with EV cheaper (\%) & 71.3 & 86.2 & 43.9 & 59.6 \\
-Tier~3 mean savings (\%) & $+4.4$ & $+10.4$ & $-11.0$ & $-1.7$ \\
-Tier~3 paths with EV cheaper (\%) & 71.0 & 85.9 & 43.0 & 58.8 \\
-\midrule
-\multicolumn{5}{l}{\textit{Congestion}} \\
-Total FIFO wait cost (\$M) & 4,862 & 0.045 & 670,921 & 156,100 \\
+\multicolumn{9}{l}{\textit{Paths with EV cheaper (\%)}} \\
+Tier~1 & 100.0 & 100.0 & 100.0 & 100.0 & 100.0 & 100.0 & 100.0 & 100.0 \\
+Tier~2 & 96.7 & 97.0 & 97.1 & 97.2 & 96.0 & 96.2 & 96.3 & 96.6 \\
 \bottomrule
 \end{tabularx}
 \end{table*}
 
-The three-tier economic analysis reveals that charger power is the dominant driver of EV cost competitiveness for long-distance travel. At Tier~1, EVs are more expensive than ICE in all four scenarios, with the cost penalty ranging from 6.1\% (DCFC 350~kW) to 46.3\% (L2 5~kW). The primary driver of this penalty is detour time cost: even though electricity is substantially cheaper than gasoline per mile, the time overhead of detouring to chargers and charging offsets this advantage. At 5~kW L2, charging time alone (292~min/stop $\times$ 8.5 stops $\approx$ 41~hours per trip) makes EV operational costs nearly 50\% higher than ICE. At Tier~2, the EV maintenance advantage (\$0.05/mi savings) and ICE vehicle amortization partially offset the operational penalty. DCFC scenarios cross into positive territory: EVs are 4.5\% cheaper at 50~kW and 10.5\% cheaper at 350~kW on a per-trip TCO basis. L2 scenarios remain EV-unfavorable but the gap narrows substantially, from $-46.3$\% to $-10.6$\% (5~kW) and from $-28.5$\% to $-1.3$\% (15~kW). At Tier~2, 86.2\% of individual feasible paths are cheaper by EV under DCFC 350~kW, compared to only 43.9\% under L2 5~kW. Tier~3 adds amortized infrastructure costs. Because DCFC has fewer plugs (68K vs.\ 169K) and each plug costs \$50,000 with a 12-year lifespan and 8\% annual O\&M, the per-trip infrastructure burden is modest and Tier~3 results are nearly identical to Tier~2. The L2 network's 2.5$\times$ higher plug count increases infrastructure cost slightly, shifting L2 results by approximately 0.4 percentage points relative to Tier~2.
-
-The most striking finding concerns congestion: FIFO wait costs span seven orders of magnitude across scenarios. At DCFC 350~kW, vehicles charge so quickly (4.1~min average) that plug occupancy rarely overlaps, producing only \$45,000 in total wait costs across all 644,771 feasible paths. At DCFC 50~kW, the sixfold longer charging time (29~min) creates substantial temporal overlap at popular stations, yielding \$4.9~billion in wait costs. The L2 scenarios produce wait costs of \$156~billion (15~kW) and \$671~billion (5~kW), reflecting extreme congestion cascades: when each charging session occupies a plug for hours, queues build upon queues at high-utilization stations. These FIFO wait costs represent theoretical worst-case congestion under the assumption that all feasible vehicles charge simultaneously at en-route stations. In practice, such extreme queuing would trigger behavioral responses, trip rescheduling, mode switching, or avoidance of long-distance EV travel altogether. The framework's value lies not in the absolute magnitude of these costs but in their relative ordering: they quantify the infrastructure's \textit{capacity margin} under each technology scenario and demonstrate that charger power, not plug count, is the binding constraint on long-distance EV network throughput.
-
-Three conclusions emerge from the case study, and it is worth to highlight that these findings are highly-dependent on the parametric value choices. First, feasibility is geography-dependent, not power-dependent: charger power does not affect whether a vehicle can complete its trip, and only network spatial coverage matters for feasibility. Second, DCFC is necessary for long-distance travel, L2 charging, even at the denser network with 4.5$\times$ more stations and 2.5$\times$ more plugs, produces charging times and congestion levels that are incompatible with practical intercity travel, regardless of whether L2 power is 5~kW or 15~kW. Third, ultra-fast charging closes the TCO gap: at 350~kW, EVs achieve Tier~2 cost parity with ICE for 86\% of feasible paths, and the residual Tier~1 operational penalty of 6.1\% is driven entirely by detour time, a quantity that depends on network geography rather than charging technology, and that can be reduced through strategic station siting along highway corridors. Each case study scenario, encompassing preprocessing, routing, scheduling, capacity resolution, replay, and economic analysis, completed in approximately 80~minutes on a 128-core HPC node.
+\begin{figure}[!ht]
+\centering
+\includegraphics[width=0.85\linewidth]{plot4_detour_overhead_350kW_50plugs.png}
+\caption{Charging detour as a percentage of original trip distance for the 350~kW, 50-plug scenario. Each point represents one feasible path (5,000 randomly sampled for visibility). Shorter trips incur proportionally higher detour overhead.}
+\label{fig:detour_overhead}
+\end{figure}
 
 \subsection{Sensitivity Analysis}\label{sec:sensitivity}
 
