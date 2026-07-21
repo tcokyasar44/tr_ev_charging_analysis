@@ -120,8 +120,18 @@ FUNCTION {output.check}
     'output.nonnull
   if$
 }
+FUNCTION {format.doi}
+{ doi empty$
+    'skip$
+    { new.block
+      "\doi{" doi * "}" * output
+    }
+  if$
+}
+
 FUNCTION {fin.entry}
-{ add.period$
+{ format.doi
+  add.period$
   write$
   newline$
 }
