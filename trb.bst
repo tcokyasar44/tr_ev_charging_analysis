@@ -76,6 +76,7 @@ ENTRY
     volume
     year
     doi
+    url
   }
   {}
   { label extra.label sort.label short.list }
@@ -122,7 +123,13 @@ FUNCTION {output.check}
 }
 FUNCTION {format.doi}
 { doi empty$
-    'skip$
+    { url empty$
+        'skip$
+        { new.block
+          "\url{" url * "}" * output
+        }
+      if$
+    }
     { new.block
       "\doi{" doi * "}" * output
     }
